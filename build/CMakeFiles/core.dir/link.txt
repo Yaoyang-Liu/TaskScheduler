@@ -1,0 +1,2 @@
+/usr/bin/ar qc libcore.a CMakeFiles/core.dir/src/resource_manager.cpp.o CMakeFiles/core.dir/src/job.cpp.o
+/usr/bin/ranlib libcore.a
