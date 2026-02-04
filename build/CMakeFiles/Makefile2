@@ -65,6 +65,7 @@ CMAKE_BINARY_DIR = /root/TaskScheduler/build
 # The main recursive "all" target.
 all: CMakeFiles/core.dir/all
 all: CMakeFiles/resource_manager_test.dir/all
+all: CMakeFiles/scheduler_test.dir/all
 .PHONY : all
 
 # The main recursive "preinstall" target.
@@ -74,6 +75,7 @@ preinstall:
 # The main recursive "clean" target.
 clean: CMakeFiles/core.dir/clean
 clean: CMakeFiles/resource_manager_test.dir/clean
+clean: CMakeFiles/scheduler_test.dir/clean
 .PHONY : clean
 
 #=============================================================================
@@ -83,12 +85,12 @@ clean: CMakeFiles/resource_manager_test.dir/clean
 CMakeFiles/core.dir/all:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/core.dir/build.make CMakeFiles/core.dir/depend
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/core.dir/build.make CMakeFiles/core.dir/build
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --progress-dir=/root/TaskScheduler/build/CMakeFiles --progress-num=1,2,3 "Built target core"
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --progress-dir=/root/TaskScheduler/build/CMakeFiles --progress-num=1,2,3,4,5 "Built target core"
 .PHONY : CMakeFiles/core.dir/all
 
 # Build rule for subdir invocation for target.
 CMakeFiles/core.dir/rule: cmake_check_build_system
-	$(CMAKE_COMMAND) -E cmake_progress_start /root/TaskScheduler/build/CMakeFiles 3
+	$(CMAKE_COMMAND) -E cmake_progress_start /root/TaskScheduler/build/CMakeFiles 5
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 CMakeFiles/core.dir/all
 	$(CMAKE_COMMAND) -E cmake_progress_start /root/TaskScheduler/build/CMakeFiles 0
 .PHONY : CMakeFiles/core.dir/rule
@@ -109,12 +111,12 @@ CMakeFiles/core.dir/clean:
 CMakeFiles/resource_manager_test.dir/all: CMakeFiles/core.dir/all
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/resource_manager_test.dir/build.make CMakeFiles/resource_manager_test.dir/depend
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/resource_manager_test.dir/build.make CMakeFiles/resource_manager_test.dir/build
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --progress-dir=/root/TaskScheduler/build/CMakeFiles --progress-num=4,5 "Built target resource_manager_test"
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --progress-dir=/root/TaskScheduler/build/CMakeFiles --progress-num=6,7 "Built target resource_manager_test"
 .PHONY : CMakeFiles/resource_manager_test.dir/all
 
 # Build rule for subdir invocation for target.
 CMakeFiles/resource_manager_test.dir/rule: cmake_check_build_system
-	$(CMAKE_COMMAND) -E cmake_progress_start /root/TaskScheduler/build/CMakeFiles 5
+	$(CMAKE_COMMAND) -E cmake_progress_start /root/TaskScheduler/build/CMakeFiles 7
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 CMakeFiles/resource_manager_test.dir/all
 	$(CMAKE_COMMAND) -E cmake_progress_start /root/TaskScheduler/build/CMakeFiles 0
 .PHONY : CMakeFiles/resource_manager_test.dir/rule
@@ -127,6 +129,32 @@ resource_manager_test: CMakeFiles/resource_manager_test.dir/rule
 CMakeFiles/resource_manager_test.dir/clean:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/resource_manager_test.dir/build.make CMakeFiles/resource_manager_test.dir/clean
 .PHONY : CMakeFiles/resource_manager_test.dir/clean
+
+#=============================================================================
+# Target rules for target CMakeFiles/scheduler_test.dir
+
+# All Build rule for target.
+CMakeFiles/scheduler_test.dir/all: CMakeFiles/core.dir/all
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/scheduler_test.dir/build.make CMakeFiles/scheduler_test.dir/depend
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/scheduler_test.dir/build.make CMakeFiles/scheduler_test.dir/build
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --progress-dir=/root/TaskScheduler/build/CMakeFiles --progress-num=8,9 "Built target scheduler_test"
+.PHONY : CMakeFiles/scheduler_test.dir/all
+
+# Build rule for subdir invocation for target.
+CMakeFiles/scheduler_test.dir/rule: cmake_check_build_system
+	$(CMAKE_COMMAND) -E cmake_progress_start /root/TaskScheduler/build/CMakeFiles 7
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 CMakeFiles/scheduler_test.dir/all
+	$(CMAKE_COMMAND) -E cmake_progress_start /root/TaskScheduler/build/CMakeFiles 0
+.PHONY : CMakeFiles/scheduler_test.dir/rule
+
+# Convenience name for target.
+scheduler_test: CMakeFiles/scheduler_test.dir/rule
+.PHONY : scheduler_test
+
+# clean rule for target.
+CMakeFiles/scheduler_test.dir/clean:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/scheduler_test.dir/build.make CMakeFiles/scheduler_test.dir/clean
+.PHONY : CMakeFiles/scheduler_test.dir/clean
 
 #=============================================================================
 # Special targets to cleanup operation of make.

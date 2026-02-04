@@ -8,10 +8,7 @@ set(CMAKE_DEPENDS_LANGUAGES
 
 # The set of dependency files which are needed:
 set(CMAKE_DEPENDS_DEPENDENCY_FILES
-  "/root/TaskScheduler/src/job.cpp" "CMakeFiles/core.dir/src/job.cpp.o" "gcc" "CMakeFiles/core.dir/src/job.cpp.o.d"
-  "/root/TaskScheduler/src/logger.cpp" "CMakeFiles/core.dir/src/logger.cpp.o" "gcc" "CMakeFiles/core.dir/src/logger.cpp.o.d"
-  "/root/TaskScheduler/src/resource_manager.cpp" "CMakeFiles/core.dir/src/resource_manager.cpp.o" "gcc" "CMakeFiles/core.dir/src/resource_manager.cpp.o.d"
-  "/root/TaskScheduler/src/scheduler.cpp" "CMakeFiles/core.dir/src/scheduler.cpp.o" "gcc" "CMakeFiles/core.dir/src/scheduler.cpp.o.d"
+  "/root/TaskScheduler/tests/scheduler_test.cpp" "CMakeFiles/scheduler_test.dir/tests/scheduler_test.cpp.o" "gcc" "CMakeFiles/scheduler_test.dir/tests/scheduler_test.cpp.o.d"
   )
 
 # Targets to which this target links which contain Fortran sources.

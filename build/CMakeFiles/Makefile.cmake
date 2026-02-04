@@ -60,4 +60,5 @@ set(CMAKE_MAKEFILE_PRODUCTS
 set(CMAKE_DEPEND_INFO_FILES
   "CMakeFiles/core.dir/DependInfo.cmake"
   "CMakeFiles/resource_manager_test.dir/DependInfo.cmake"
+  "CMakeFiles/scheduler_test.dir/DependInfo.cmake"
   )

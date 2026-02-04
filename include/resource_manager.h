@@ -10,6 +10,7 @@ struct ResourceQuota {
    size_t total_mem_mb{2048}; 
 };
 
+// 资源管理器：提供线程安全的 reserve/release 接口
 class ResourceManager {
 public:
     explicit ResourceManager(ResourceQuota quota);

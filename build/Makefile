@@ -142,6 +142,19 @@ resource_manager_test/fast:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/resource_manager_test.dir/build.make CMakeFiles/resource_manager_test.dir/build
 .PHONY : resource_manager_test/fast
 
+#=============================================================================
+# Target rules for targets named scheduler_test
+
+# Build rule for target.
+scheduler_test: cmake_check_build_system
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 scheduler_test
+.PHONY : scheduler_test
+
+# fast build rule for target.
+scheduler_test/fast:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/scheduler_test.dir/build.make CMakeFiles/scheduler_test.dir/build
+.PHONY : scheduler_test/fast
+
 src/job.o: src/job.cpp.o
 .PHONY : src/job.o
 
@@ -165,6 +178,30 @@ src/job.s: src/job.cpp.s
 src/job.cpp.s:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/core.dir/build.make CMakeFiles/core.dir/src/job.cpp.s
 .PHONY : src/job.cpp.s
+
+src/logger.o: src/logger.cpp.o
+.PHONY : src/logger.o
+
+# target to build an object file
+src/logger.cpp.o:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/core.dir/build.make CMakeFiles/core.dir/src/logger.cpp.o
+.PHONY : src/logger.cpp.o
+
+src/logger.i: src/logger.cpp.i
+.PHONY : src/logger.i
+
+# target to preprocess a source file
+src/logger.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/core.dir/build.make CMakeFiles/core.dir/src/logger.cpp.i
+.PHONY : src/logger.cpp.i
+
+src/logger.s: src/logger.cpp.s
+.PHONY : src/logger.s
+
+# target to generate assembly for a file
+src/logger.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/core.dir/build.make CMakeFiles/core.dir/src/logger.cpp.s
+.PHONY : src/logger.cpp.s
 
 src/resource_manager.o: src/resource_manager.cpp.o
 .PHONY : src/resource_manager.o
@@ -190,6 +227,30 @@ src/resource_manager.cpp.s:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/core.dir/build.make CMakeFiles/core.dir/src/resource_manager.cpp.s
 .PHONY : src/resource_manager.cpp.s
 
+src/scheduler.o: src/scheduler.cpp.o
+.PHONY : src/scheduler.o
+
+# target to build an object file
+src/scheduler.cpp.o:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/core.dir/build.make CMakeFiles/core.dir/src/scheduler.cpp.o
+.PHONY : src/scheduler.cpp.o
+
+src/scheduler.i: src/scheduler.cpp.i
+.PHONY : src/scheduler.i
+
+# target to preprocess a source file
+src/scheduler.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/core.dir/build.make CMakeFiles/core.dir/src/scheduler.cpp.i
+.PHONY : src/scheduler.cpp.i
+
+src/scheduler.s: src/scheduler.cpp.s
+.PHONY : src/scheduler.s
+
+# target to generate assembly for a file
+src/scheduler.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/core.dir/build.make CMakeFiles/core.dir/src/scheduler.cpp.s
+.PHONY : src/scheduler.cpp.s
+
 tests/resource_manager_test.o: tests/resource_manager_test.cpp.o
 .PHONY : tests/resource_manager_test.o
 
@@ -214,6 +275,30 @@ tests/resource_manager_test.cpp.s:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/resource_manager_test.dir/build.make CMakeFiles/resource_manager_test.dir/tests/resource_manager_test.cpp.s
 .PHONY : tests/resource_manager_test.cpp.s
 
+tests/scheduler_test.o: tests/scheduler_test.cpp.o
+.PHONY : tests/scheduler_test.o
+
+# target to build an object file
+tests/scheduler_test.cpp.o:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/scheduler_test.dir/build.make CMakeFiles/scheduler_test.dir/tests/scheduler_test.cpp.o
+.PHONY : tests/scheduler_test.cpp.o
+
+tests/scheduler_test.i: tests/scheduler_test.cpp.i
+.PHONY : tests/scheduler_test.i
+
+# target to preprocess a source file
+tests/scheduler_test.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/scheduler_test.dir/build.make CMakeFiles/scheduler_test.dir/tests/scheduler_test.cpp.i
+.PHONY : tests/scheduler_test.cpp.i
+
+tests/scheduler_test.s: tests/scheduler_test.cpp.s
+.PHONY : tests/scheduler_test.s
+
+# target to generate assembly for a file
+tests/scheduler_test.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/scheduler_test.dir/build.make CMakeFiles/scheduler_test.dir/tests/scheduler_test.cpp.s
+.PHONY : tests/scheduler_test.cpp.s
+
 # Help Target
 help:
 	@echo "The following are some of the valid targets for this Makefile:"
@@ -224,15 +309,25 @@ help:
 	@echo "... rebuild_cache"
 	@echo "... core"
 	@echo "... resource_manager_test"
+	@echo "... scheduler_test"
 	@echo "... src/job.o"
 	@echo "... src/job.i"
 	@echo "... src/job.s"
+	@echo "... src/logger.o"
+	@echo "... src/logger.i"
+	@echo "... src/logger.s"
 	@echo "... src/resource_manager.o"
 	@echo "... src/resource_manager.i"
 	@echo "... src/resource_manager.s"
+	@echo "... src/scheduler.o"
+	@echo "... src/scheduler.i"
+	@echo "... src/scheduler.s"
 	@echo "... tests/resource_manager_test.o"
 	@echo "... tests/resource_manager_test.i"
 	@echo "... tests/resource_manager_test.s"
+	@echo "... tests/scheduler_test.o"
+	@echo "... tests/scheduler_test.i"
+	@echo "... tests/scheduler_test.s"
 .PHONY : help
 
 

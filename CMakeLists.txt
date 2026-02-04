@@ -14,7 +14,9 @@ include_directories(
 # 编译核心模块（如ResourceManager）
 add_library(core
     src/resource_manager.cpp
-    src/job.cpp  # 若有job的实现文件，需添加
+    src/job.cpp
+    src/scheduler.cpp
+    src/logger.cpp
 )
 
 # 编译测试程序
@@ -22,8 +24,17 @@ find_package(GTest REQUIRED)
 add_executable(resource_manager_test
     tests/resource_manager_test.cpp
 )
+add_executable(scheduler_test
+    tests/scheduler_test.cpp
+)
 # 链接核心模块、GTest库、线程库
 target_link_libraries(resource_manager_test
+    core
+    ${GTEST_LIBRARIES}
+    pthread
+)
+
+target_link_libraries(scheduler_test
     core
     ${GTEST_LIBRARIES}
     pthread
