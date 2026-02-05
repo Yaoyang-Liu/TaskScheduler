@@ -284,6 +284,15 @@ TaskScheduler_IS_TOP_LEVEL:STATIC=ON
 //Value Computed by CMake
 TaskScheduler_SOURCE_DIR:STATIC=/root/TaskScheduler
 
+//Value Computed by CMake
+ts_scheduler_test_BINARY_DIR:STATIC=/root/TaskScheduler/build
+
+//Value Computed by CMake
+ts_scheduler_test_IS_TOP_LEVEL:STATIC=ON
+
+//Value Computed by CMake
+ts_scheduler_test_SOURCE_DIR:STATIC=/root/TaskScheduler
+
 
 ########################
 # INTERNAL cache entries
