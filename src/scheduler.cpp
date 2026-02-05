@@ -1,5 +1,6 @@
 #include "scheduler.h"
 #include "logger.h"
+
 #include <csignal>
 #include <sys/wait.h>
 #include <sys/resource.h>
@@ -44,7 +45,7 @@ int Scheduler::submit(const JobSpec& spec) {
     job.status = JobStatus::Pending;
     job.enqueue_time = std::chrono::steady_clock::now();
 
-    pending_.push_back(job);
+    pending_.emplace(job);
     cv_.notify_all();
     Logger::instance().log(Logger::Level::INFO, "submit id: " + std::to_string(id) + " cmd = " + spec.cmd);
     return id;
@@ -82,18 +83,13 @@ bool Scheduler::pick_next_job(Job& out) {
         return false;
     }
     if(!opts_.enable_priority) {
-        out = pending_.front();
-        pending_.erase(pending_.begin());
+        out = pending_.top();
+        pending_.pop();
         return true;
     }
-    auto best_it = pending_.begin();
-    for(auto it = pending_.begin(); it != pending_.end(); ++it) {
-        if(it->spec.priority > best_it->spec.priority) {
-            best_it = it;
-        }
-    }
-    out = *best_it;
-    pending_.erase(best_it);
+    auto best = pending_.top();
+    pending_.pop();
+    out = std::move(best);
     return true;
 }
 
@@ -147,6 +143,7 @@ bool Scheduler::launch_job(Job& job) {
         return true;
     }
     else {
+        setsid();
         execl("/bin/sh", "sh", "-c", job.spec.cmd.c_str(), nullptr);
         _exit(127);
     }
@@ -173,74 +170,114 @@ void Scheduler::dispatcher_loop() {
             continue;
         }
         if (!rm_.reserve(next_job.spec.cpu_cores, next_job.spec.mem_mb)) {
-            cv_.wait_for(lk, std::chrono::milliseconds(200));
-            pending_.push_back(next_job);
+            if (opts_.max_queue_size > 0 && static_cast<int>(pending_.size()) >= opts_.max_queue_size) {
+                rm_.release(next_job.spec.cpu_cores, next_job.spec.mem_mb);
+                Logger::instance().log(Logger::Level::WARN, "job " + std::to_string(next_job.id) + " dropped: queue full");
+            } else {
+                cv_.wait_for(lk, std::chrono::milliseconds(200));
+                pending_.emplace(next_job);
+            }
             continue;
         }
         next_job.status = JobStatus::Running;
         if (!launch_job(next_job)) {
             Logger::instance().log(Logger::Level::ERROR, "failed to launch job id = " + std::to_string(next_job.id));
             rm_.release(next_job.spec.cpu_cores, next_job.spec.mem_mb);
+            cv_.notify_all();
             continue;
         }
         running_.emplace(next_job.id, next_job);
+        cv_.notify_all();
         lk.unlock();
     }
 }
 
-// reaper_loop: 回收线程主循环，负责：
-// 1. 检查运行中任务的超时情况
-// 2. 回收已结束的子进程
-// 3. 释放资源并更新任务状态
 void Scheduler::reaper_loop() {
+    constexpr auto kGracePeriodMs = 500;
     while (is_running_.load() || !running_.empty()) {
         std::unique_lock lk(mu_);
+        auto now = std::chrono::steady_clock::now();
         for (auto it = running_.begin(); it != running_.end();) {
             Job& job = it->second;
-            if (job.spec.timeout_sec > 0) {
-                auto elapsed = std::chrono::steady_clock::now() - job.start_time;
-                if (elapsed > std::chrono::seconds(job.spec.timeout_sec)) {
-                    if (kill(job.pid, SIGKILL) == -1 && errno != ESRCH) {
-                        Logger::instance().log(Logger::Level::ERROR, "kill failed: " + std::string(strerror(errno)));
+
+            if (job.spec.timeout_sec > 0 && job.status == JobStatus::Running) {
+                auto elapsed = now - job.start_time;
+                auto timeout = std::chrono::seconds(job.spec.timeout_sec);
+                if (elapsed > timeout && !job.sigkill_sent) {
+                    if (job.sigterm_time.time_since_epoch().count() == 0) {
+                        Logger::instance().log(Logger::Level::WARN, "job " + std::to_string(job.id) + " timeout, sending SIGTERM");
+                        kill(-job.pid, SIGTERM);
+                        job.sigterm_time = now;
+                        cv_.notify_all();
+                    } else if (!job.sigkill_sent) {
+                        auto sigterm_elapsed = now - job.sigterm_time;
+                        if (sigterm_elapsed > std::chrono::milliseconds(kGracePeriodMs)) {
+                            Logger::instance().log(Logger::Level::WARN, "job " + std::to_string(job.id) + " grace period expired, sending SIGKILL");
+                            kill(-job.pid, SIGKILL);
+                            job.sigkill_sent = true;
+                            cv_.notify_all();
+                            while (true) {
+                                int status = 0;
+                                pid_t ret = waitpid(job.pid, &status, WNOHANG);
+                                if (ret == job.pid || (ret == -1 && errno == ECHILD)) {
+                                    if (WIFEXITED(status) && WEXITSTATUS(status) == 0) {
+                                        job.status = JobStatus::Succeeded;
+                                    } else if (WIFSIGNALED(status)) {
+                                        job.status = JobStatus::Timeout;
+                                    } else {
+                                        job.status = JobStatus::Failed;
+                                    }
+                                    job.exit_code = status;
+                                    job.end_time = std::chrono::steady_clock::now();
+                                    rm_.release(job.spec.cpu_cores, job.spec.mem_mb);
+                                    Logger::instance().log(Logger::Level::INFO, "job " + std::to_string(job.id) + " finished status=" + std::to_string(status));
+                                    it = running_.erase(it);
+                                    cv_.notify_all();
+                                    break;
+                                }
+                                lk.unlock();
+                                std::this_thread::sleep_for(std::chrono::milliseconds(1));
+                                lk.lock();
+                            }
+                            continue;
+                        }
                     }
-                    Logger::instance().log(Logger::Level::WARN, "job " + std::to_string(job.id) + " SIGKILL after timeout");
                 }
             }
 
             int status = 0;
-            pid_t ret = waitpid(job.pid, &status, WNOHANG);
-            if (ret == 0) {
-                ++it;
-                continue;
-            }
+            pid_t ret = waitpid(job.pid, &status, WNOHANG | WUNTRACED);
             if (ret == job.pid) {
-                // 正常结束：检查退出状态
                 if (WIFEXITED(status) && WEXITSTATUS(status) == 0) {
                     job.status = JobStatus::Succeeded;
-                }
-                else if (WIFSIGNALED(status)) {
-                    job.status = JobStatus::Timeout;
-                }
-                else {
+                } else if (WIFSIGNALED(status)) {
+                    job.status = job.sigkill_sent ? JobStatus::Timeout : JobStatus::Failed;
+                } else if (WIFSTOPPED(status)) {
+                    ++it;
+                    continue;
+                } else {
                     job.status = JobStatus::Failed;
                 }
                 job.exit_code = status;
                 job.end_time = std::chrono::steady_clock::now();
-
                 rm_.release(job.spec.cpu_cores, job.spec.mem_mb);
                 Logger::instance().log(Logger::Level::INFO, "job " + std::to_string(job.id) + " finished status=" + std::to_string(status));
                 it = running_.erase(it);
                 cv_.notify_all();
             } else if (ret == -1 && errno == ECHILD) {
-                // 子进程已被其他方式回收（可能是SIGKILL导致）
+                job.status = job.sigkill_sent ? JobStatus::Timeout : JobStatus::Failed;
+                job.end_time = std::chrono::steady_clock::now();
+                rm_.release(job.spec.cpu_cores, job.spec.mem_mb);
                 Logger::instance().log(Logger::Level::WARN, "job " + std::to_string(job.id) + " child already reaped");
                 it = running_.erase(it);
+            } else if (ret == 0) {
+                ++it;
             } else {
                 ++it;
             }
         }
         lk.unlock();
-        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
     }
 }
 } // namespace ts

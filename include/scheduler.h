@@ -7,6 +7,7 @@
 #include <atomic>
 #include <condition_variable>
 #include <thread>
+#include <queue>
 
 namespace ts {
 
@@ -16,6 +17,15 @@ struct SchedulerOptions {
     bool enable_priority{false};
     std::vector<std::string> cmd_whitelist;
     std::vector<std::string> cmd_blacklist;
+};
+
+struct JobComparator {
+    bool operator()(const Job& a, const Job& b) const {
+        if (a.spec.priority != b.spec.priority) {
+            return a.spec.priority < b.spec.priority;
+        }
+        return a.enqueue_time > b.enqueue_time;
+    }
 };
 
 class Scheduler {
@@ -42,7 +52,7 @@ private:
     void reaper_loop();
     SchedulerOptions opts_;
     ResourceManager rm_;
-    std::vector<Job> pending_;
+    std::priority_queue<Job, std::vector<Job>, JobComparator> pending_;
     std::unordered_map<int, Job> running_;
     mutable std::mutex mu_;
     int next_id_{1};
