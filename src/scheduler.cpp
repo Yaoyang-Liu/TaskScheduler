@@ -1,5 +1,6 @@
 #include "scheduler.h"
 #include "logger.h"
+#include "metrics.h"
 
 #include <csignal>
 #include <sys/wait.h>
@@ -27,14 +28,17 @@ int Scheduler::submit(const JobSpec& spec) {
     std::scoped_lock lk(mu_);
     if(!check_whitelist(spec)) {
         Logger::instance().log(Logger::Level::WARN, "submit rejected: cmd not allowed");
+        metrics_.inc_rejected();
         return -1;
     }
     if(!check_blacklist(spec)) {
         Logger::instance().log(Logger::Level::WARN, "submit rejected: cmd blacklist");
+        metrics_.inc_rejected();
         return -1;
     }
     if(opts_.max_queue_size > 0 && static_cast<int>(pending_.size()) >= opts_.max_queue_size) {
         Logger::instance().log(Logger::Level::WARN, "submit rejected: queue full");
+        metrics_.inc_rejected();
         return -1;
     }
 
@@ -46,6 +50,7 @@ int Scheduler::submit(const JobSpec& spec) {
     job.enqueue_time = std::chrono::steady_clock::now();
 
     pending_.emplace(job);
+    metrics_.inc_submitted();
     cv_.notify_all();
     Logger::instance().log(Logger::Level::INFO, "submit id: " + std::to_string(id) + " cmd = " + spec.cmd);
     return id;
@@ -180,104 +185,98 @@ void Scheduler::dispatcher_loop() {
             continue;
         }
         next_job.status = JobStatus::Running;
-        if (!launch_job(next_job)) {
+        running_.emplace(next_job.id, next_job);
+        metrics_.inc_running();
+        Job& ref = running_.at(next_job.id);
+        int64_t wait_ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - ref.enqueue_time).count();
+        metrics_.add_queue_wait(wait_ms);
+        if (!launch_job(ref)) {
             Logger::instance().log(Logger::Level::ERROR, "failed to launch job id = " + std::to_string(next_job.id));
             rm_.release(next_job.spec.cpu_cores, next_job.spec.mem_mb);
+            metrics_.inc_launch_failed();
+            metrics_.dec_running();
+            running_.erase(next_job.id);
             cv_.notify_all();
             continue;
         }
-        running_.emplace(next_job.id, next_job);
         cv_.notify_all();
         lk.unlock();
     }
 }
 
+// reaper_loop: 回收线程主循环
+// 1. 遍历所有运行中的任务
+// 2. 检查超时任务，发送 SIGTERM/SIGKILL
+// 3. 调用 waitpid 收割已结束的子进程
 void Scheduler::reaper_loop() {
     constexpr auto kGracePeriodMs = 500;
     while (is_running_.load() || !running_.empty()) {
         std::unique_lock lk(mu_);
-        auto now = std::chrono::steady_clock::now();
         for (auto it = running_.begin(); it != running_.end();) {
             Job& job = it->second;
-
+            auto now = std::chrono::steady_clock::now();
+            // 检查任务是否设置了超时且正在运行
             if (job.spec.timeout_sec > 0 && job.status == JobStatus::Running) {
                 auto elapsed = now - job.start_time;
                 auto timeout = std::chrono::seconds(job.spec.timeout_sec);
-                if (elapsed > timeout && !job.sigkill_sent) {
+                // 任务执行时间超过超时阈值
+                if (elapsed > timeout) {
+                    // 首次超时：发送 SIGTERM 优雅终止
                     if (job.sigterm_time.time_since_epoch().count() == 0) {
                         Logger::instance().log(Logger::Level::WARN, "job " + std::to_string(job.id) + " timeout, sending SIGTERM");
-                        kill(-job.pid, SIGTERM);
+                        kill(job.pid, SIGTERM);
+                        job.sigkill_sent = true;
                         job.sigterm_time = now;
                         cv_.notify_all();
-                    } else if (!job.sigkill_sent) {
+                    } else {
+                        // 等待宽限期后强制杀死
                         auto sigterm_elapsed = now - job.sigterm_time;
                         if (sigterm_elapsed > std::chrono::milliseconds(kGracePeriodMs)) {
                             Logger::instance().log(Logger::Level::WARN, "job " + std::to_string(job.id) + " grace period expired, sending SIGKILL");
-                            kill(-job.pid, SIGKILL);
-                            job.sigkill_sent = true;
+                            kill(job.pid, SIGKILL);
                             cv_.notify_all();
-                            while (true) {
-                                int status = 0;
-                                pid_t ret = waitpid(job.pid, &status, WNOHANG);
-                                if (ret == job.pid || (ret == -1 && errno == ECHILD)) {
-                                    if (WIFEXITED(status) && WEXITSTATUS(status) == 0) {
-                                        job.status = JobStatus::Succeeded;
-                                    } else if (WIFSIGNALED(status)) {
-                                        job.status = JobStatus::Timeout;
-                                    } else {
-                                        job.status = JobStatus::Failed;
-                                    }
-                                    job.exit_code = status;
-                                    job.end_time = std::chrono::steady_clock::now();
-                                    rm_.release(job.spec.cpu_cores, job.spec.mem_mb);
-                                    Logger::instance().log(Logger::Level::INFO, "job " + std::to_string(job.id) + " finished status=" + std::to_string(status));
-                                    it = running_.erase(it);
-                                    cv_.notify_all();
-                                    break;
-                                }
-                                lk.unlock();
-                                std::this_thread::sleep_for(std::chrono::milliseconds(1));
-                                lk.lock();
-                            }
                             continue;
                         }
                     }
                 }
             }
-
+            // 非阻塞方式检查子进程状态
             int status = 0;
-            pid_t ret = waitpid(job.pid, &status, WNOHANG | WUNTRACED);
-            if (ret == job.pid) {
+            pid_t ret = waitpid(job.pid, &status, WNOHANG);
+            // 子进程已结束或已回收
+            if (ret == job.pid || (ret == -1 && errno == ECHILD)) {
+                // 根据退出状态设置任务结果
                 if (WIFEXITED(status) && WEXITSTATUS(status) == 0) {
                     job.status = JobStatus::Succeeded;
+                    metrics_.inc_succeeded();
                 } else if (WIFSIGNALED(status)) {
-                    job.status = job.sigkill_sent ? JobStatus::Timeout : JobStatus::Failed;
-                } else if (WIFSTOPPED(status)) {
-                    ++it;
-                    continue;
+                    job.status = JobStatus::Timeout;
+                    metrics_.inc_timeout();
                 } else {
                     job.status = JobStatus::Failed;
+                    metrics_.inc_failed();
                 }
                 job.exit_code = status;
                 job.end_time = std::chrono::steady_clock::now();
+                // 释放占用的资源
                 rm_.release(job.spec.cpu_cores, job.spec.mem_mb);
+                metrics_.dec_running();
                 Logger::instance().log(Logger::Level::INFO, "job " + std::to_string(job.id) + " finished status=" + std::to_string(status));
+                // 从运行队列移除并通知等待线程
                 it = running_.erase(it);
                 cv_.notify_all();
-            } else if (ret == -1 && errno == ECHILD) {
-                job.status = job.sigkill_sent ? JobStatus::Timeout : JobStatus::Failed;
-                job.end_time = std::chrono::steady_clock::now();
-                rm_.release(job.spec.cpu_cores, job.spec.mem_mb);
-                Logger::instance().log(Logger::Level::WARN, "job " + std::to_string(job.id) + " child already reaped");
-                it = running_.erase(it);
-            } else if (ret == 0) {
-                ++it;
-            } else {
-                ++it;
+                break;
             }
+            // 短暂休眠避免 busy loop
+            lk.unlock();
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+            lk.lock();
         }
-        lk.unlock();
-        std::this_thread::sleep_for(std::chrono::milliseconds(1));
     }
+}
+
+Metrics::Snapshot Scheduler::metrics() const {
+    std::scoped_lock lk(mu_);
+    return metrics_.snapshot(static_cast<int>(pending_.size()));
 }
 } // namespace ts

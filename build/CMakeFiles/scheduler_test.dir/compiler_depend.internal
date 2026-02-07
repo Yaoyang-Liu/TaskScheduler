@@ -4,6 +4,7 @@
 CMakeFiles/scheduler_test.dir/tests/scheduler_test.cpp.o
  /root/TaskScheduler/tests/scheduler_test.cpp
  /root/TaskScheduler/include/job.h
+ /root/TaskScheduler/include/metrics.h
  /root/TaskScheduler/include/resource_manager.h
  /root/TaskScheduler/include/scheduler.h
  /usr/include/alloca.h

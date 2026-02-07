@@ -2,6 +2,7 @@
 
 #include "job.h"
 #include "resource_manager.h"
+#include "metrics.h"
 #include <vector>
 #include <unordered_map>
 #include <atomic>
@@ -43,6 +44,8 @@ public:
     void stop();
 
     bool idle() const;
+
+    Metrics::Snapshot metrics() const;
 private:
     bool pick_next_job(Job& out);
     bool check_whitelist(const JobSpec& spec);
@@ -60,6 +63,7 @@ private:
     std::thread dispatcher_thread_;
     std::thread reaper_thread_;
     std::condition_variable cv_;
+    Metrics metrics_;
 };
 
 } // namespace ts

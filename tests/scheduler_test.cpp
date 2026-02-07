@@ -1,4 +1,4 @@
-#include "scheduler.h" // 假设你的 Scheduler 定义在 scheduler.h
+#include "scheduler.h" 
 #include <gtest/gtest.h>
 #include <thread>
 #include <chrono>
@@ -374,6 +374,163 @@ TEST(SchedulerTest, StartStopCycleCanBeRepeated) {
         EXPECT_TRUE(wait_until_idle(sched, std::chrono::seconds(2)));
         sched.stop();
     }
+}
+
+TEST(SchedulerTest, MetricsSubmittedCounter) {
+    SchedulerOptions opts;
+    opts.quota = {4, 1024};
+    Scheduler sched(opts);
+    sched.start();
+
+    JobSpec spec;
+    spec.cmd = "echo test";
+    spec.cpu_cores = 1;
+    spec.mem_mb = 128;
+
+    int id1 = sched.submit(spec);
+    int id2 = sched.submit(spec);
+    int id3 = sched.submit(spec);
+    EXPECT_GE(id1, 0);
+    EXPECT_GE(id2, 0);
+    EXPECT_GE(id3, 0);
+
+    EXPECT_TRUE(wait_until_idle(sched));
+    sched.stop();
+
+    auto snapshot = sched.metrics();
+    EXPECT_EQ(snapshot.submitted, 3);
+    EXPECT_EQ(snapshot.succeeded, 3);
+    EXPECT_EQ(snapshot.failed, 0);
+    EXPECT_EQ(snapshot.timeout, 0);
+}
+
+TEST(SchedulerTest, MetricsFailedCounter) {
+    SchedulerOptions opts;
+    opts.quota = {2, 1024};
+    Scheduler sched(opts);
+    sched.start();
+
+    JobSpec spec;
+    spec.cmd = "/nonexistent/command";
+    spec.cpu_cores = 1;
+    spec.mem_mb = 128;
+
+    int id = sched.submit(spec);
+    EXPECT_GE(id, 0);
+
+    EXPECT_TRUE(wait_until_idle(sched));
+    sched.stop();
+
+    auto snapshot = sched.metrics();
+    EXPECT_EQ(snapshot.submitted, 1);
+    EXPECT_EQ(snapshot.failed, 1);
+}
+
+TEST(SchedulerTest, MetricsTimeoutCounter) {
+    SchedulerOptions opts;
+    opts.quota = {2, 1024};
+    Scheduler sched(opts);
+    sched.start();
+
+    JobSpec spec;
+    spec.cmd = "sleep 10";
+    spec.timeout_sec = 1;
+    spec.cpu_cores = 1;
+    spec.mem_mb = 128;
+
+    int id = sched.submit(spec);
+    EXPECT_GE(id, 0);
+
+    EXPECT_TRUE(wait_until_idle(sched, std::chrono::seconds(3)));
+    sched.stop();
+
+    auto snapshot = sched.metrics();
+    EXPECT_EQ(snapshot.submitted, 1);
+    EXPECT_EQ(snapshot.timeout, 1);
+    EXPECT_EQ(snapshot.succeeded, 0);
+}
+
+TEST(SchedulerTest, MetricsQueueWaitTime) {
+    SchedulerOptions opts;
+    opts.quota = {1, 512};
+    Scheduler sched(opts);
+    sched.start();
+
+    JobSpec spec;
+    spec.cmd = "sleep 1";
+    spec.cpu_cores = 1;
+    spec.mem_mb = 256;
+
+    int id1 = sched.submit(spec);
+    int id2 = sched.submit(spec);
+    EXPECT_GE(id1, 0);
+    EXPECT_GE(id2, 0);
+
+    EXPECT_TRUE(wait_until_idle(sched, std::chrono::seconds(5)));
+    sched.stop();
+
+    auto snapshot = sched.metrics();
+    EXPECT_EQ(snapshot.submitted, 2);
+    EXPECT_EQ(snapshot.succeeded, 2);
+    EXPECT_GE(snapshot.queue_wait_ms_avg, 0);
+    EXPECT_GE(snapshot.queue_wait_ms_max, 0);
+    EXPECT_EQ(snapshot.queue_wait_count, 2);
+}
+
+TEST(SchedulerTest, MetricsRejectedCounter) {
+    SchedulerOptions opts;
+    opts.quota = {2, 1024};
+    opts.cmd_whitelist = {"echo"};
+    Scheduler sched(opts);
+    sched.start();
+
+    JobSpec spec1;
+    spec1.cmd = "echo allowed";
+    spec1.cpu_cores = 1;
+    spec1.mem_mb = 128;
+
+    JobSpec spec2;
+    spec2.cmd = "ls /";
+    spec2.cpu_cores = 1;
+    spec2.mem_mb = 128;
+
+    int id1 = sched.submit(spec1);
+    int id2 = sched.submit(spec2);
+    EXPECT_GE(id1, 0);
+    EXPECT_EQ(id2, -1);
+
+    EXPECT_TRUE(wait_until_idle(sched));
+    sched.stop();
+
+    auto snapshot = sched.metrics();
+    EXPECT_EQ(snapshot.submitted, 1);
+    EXPECT_EQ(snapshot.rejected, 1);
+}
+
+TEST(SchedulerTest, MetricsRunningCounter) {
+    SchedulerOptions opts;
+    opts.quota = {4, 1024};
+    Scheduler sched(opts);
+    sched.start();
+
+    JobSpec spec;
+    spec.cmd = "sleep 2";
+    spec.cpu_cores = 1;
+    spec.mem_mb = 128;
+
+    int id = sched.submit(spec);
+    EXPECT_GE(id, 0);
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    auto snapshot = sched.metrics();
+    EXPECT_GE(snapshot.running, 1);
+
+    EXPECT_TRUE(wait_until_idle(sched));
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    sched.stop();
+
+    snapshot = sched.metrics();
+    EXPECT_EQ(snapshot.running, 0);
 }
 
 int main(int argc, char** argv) {

@@ -17,6 +17,7 @@ add_library(core
     src/job.cpp
     src/scheduler.cpp
     src/logger.cpp
+    src/metrics.cpp
 )
 
 # 编译测试程序
