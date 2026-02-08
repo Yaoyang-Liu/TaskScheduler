@@ -1,4 +1,6 @@
 file(REMOVE_RECURSE
+  "CMakeFiles/core.dir/src/cgroup_helper.cpp.o"
+  "CMakeFiles/core.dir/src/cgroup_helper.cpp.o.d"
   "CMakeFiles/core.dir/src/job.cpp.o"
   "CMakeFiles/core.dir/src/job.cpp.o.d"
   "CMakeFiles/core.dir/src/logger.cpp.o"

@@ -18,6 +18,7 @@ add_library(core
     src/scheduler.cpp
     src/logger.cpp
     src/metrics.cpp
+    src/cgroup_helper.cpp
 )
 
 # 编译测试程序

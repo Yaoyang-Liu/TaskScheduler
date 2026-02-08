@@ -3,6 +3,7 @@
 #include "job.h"
 #include "resource_manager.h"
 #include "metrics.h"
+#include "cgroup_helper.h"
 #include <vector>
 #include <unordered_map>
 #include <atomic>
@@ -14,8 +15,8 @@ namespace ts {
 
 struct SchedulerOptions {
     ResourceQuota quota;
+    CgroupConfig cfg;
     int max_queue_size{1000};
-    bool enable_priority{false};
     std::vector<std::string> cmd_whitelist;
     std::vector<std::string> cmd_blacklist;
 };

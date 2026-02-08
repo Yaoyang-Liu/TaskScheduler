@@ -1,6 +1,7 @@
 #include "scheduler.h"
 #include "logger.h"
 #include "metrics.h"
+#include "cgroup_helper.h"
 
 #include <csignal>
 #include <sys/wait.h>
@@ -82,15 +83,10 @@ bool Scheduler::idle() const {
 }
 
 // pick_next_job: 从等待队列中选择下一个要执行的任务
-// 如果启用优先级调度，选择优先级最高的任务；否则FIFO
+// 使用优先级队列，优先选择优先级更高的任务；相同优先级时按入队时间FIFO
 bool Scheduler::pick_next_job(Job& out) {
     if(pending_.empty()) {
         return false;
-    }
-    if(!opts_.enable_priority) {
-        out = pending_.top();
-        pending_.pop();
-        return true;
     }
     auto best = pending_.top();
     pending_.pop();
@@ -137,6 +133,7 @@ bool Scheduler::check_blacklist(const JobSpec& spec) {
 // 父进程：记录PID和启动时间
 // 子进程：通过/bin/sh执行命令
 bool Scheduler::launch_job(Job& job) {
+    std::string cg_path = create_cgroup_for_job(job.id, job.spec.cpu_cores, job.spec.mem_mb, opts_.cfg);
     pid_t pid = fork();
     if (pid < 0) {
         Logger::instance().log(Logger::Level::ERROR, "fork failed: " + std::string(strerror(errno)));
@@ -149,6 +146,9 @@ bool Scheduler::launch_job(Job& job) {
     }
     else {
         setsid();
+        if(!attach_pid_to_cgroup(getpid(), cg_path)) {
+            _exit(1);
+        }
         execl("/bin/sh", "sh", "-c", job.spec.cmd.c_str(), nullptr);
         _exit(127);
     }
@@ -260,6 +260,7 @@ void Scheduler::reaper_loop() {
                 job.end_time = std::chrono::steady_clock::now();
                 // 释放占用的资源
                 rm_.release(job.spec.cpu_cores, job.spec.mem_mb);
+                clean_up_cgroup(opts_.cfg.enabled ? (opts_.cfg.base_path + "/job_" + std::to_string(job.id)) : "");
                 metrics_.dec_running();
                 Logger::instance().log(Logger::Level::INFO, "job " + std::to_string(job.id) + " finished status=" + std::to_string(status));
                 // 从运行队列移除并通知等待线程

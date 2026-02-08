@@ -155,6 +155,30 @@ scheduler_test/fast:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/scheduler_test.dir/build.make CMakeFiles/scheduler_test.dir/build
 .PHONY : scheduler_test/fast
 
+src/cgroup_helper.o: src/cgroup_helper.cpp.o
+.PHONY : src/cgroup_helper.o
+
+# target to build an object file
+src/cgroup_helper.cpp.o:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/core.dir/build.make CMakeFiles/core.dir/src/cgroup_helper.cpp.o
+.PHONY : src/cgroup_helper.cpp.o
+
+src/cgroup_helper.i: src/cgroup_helper.cpp.i
+.PHONY : src/cgroup_helper.i
+
+# target to preprocess a source file
+src/cgroup_helper.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/core.dir/build.make CMakeFiles/core.dir/src/cgroup_helper.cpp.i
+.PHONY : src/cgroup_helper.cpp.i
+
+src/cgroup_helper.s: src/cgroup_helper.cpp.s
+.PHONY : src/cgroup_helper.s
+
+# target to generate assembly for a file
+src/cgroup_helper.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/core.dir/build.make CMakeFiles/core.dir/src/cgroup_helper.cpp.s
+.PHONY : src/cgroup_helper.cpp.s
+
 src/job.o: src/job.cpp.o
 .PHONY : src/job.o
 
@@ -334,6 +358,9 @@ help:
 	@echo "... core"
 	@echo "... resource_manager_test"
 	@echo "... scheduler_test"
+	@echo "... src/cgroup_helper.o"
+	@echo "... src/cgroup_helper.i"
+	@echo "... src/cgroup_helper.s"
 	@echo "... src/job.o"
 	@echo "... src/job.i"
 	@echo "... src/job.s"
