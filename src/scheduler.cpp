@@ -141,11 +141,13 @@ bool Scheduler::launch_job(Job& job) {
     }
     if (pid > 0) {
         job.pid = pid;
+        job.pgid = pid;
         job.start_time = std::chrono::steady_clock::now();
+        setpgid(pid, pid);
         return true;
     }
     else {
-        setsid();
+        setpgid(0, 0);
         if(!attach_pid_to_cgroup(getpid(), cg_path)) {
             _exit(1);
         }
@@ -224,7 +226,8 @@ void Scheduler::reaper_loop() {
                     // 首次超时：发送 SIGTERM 优雅终止
                     if (job.sigterm_time.time_since_epoch().count() == 0) {
                         Logger::instance().log(Logger::Level::WARN, "job " + std::to_string(job.id) + " timeout, sending SIGTERM");
-                        kill(job.pid, SIGTERM);
+                        pid_t target = job.pgid > 0 ? -job.pgid : job.pid;
+                        kill(target, SIGTERM);
                         job.sigkill_sent = true;
                         job.sigterm_time = now;
                         cv_.notify_all();
@@ -233,6 +236,7 @@ void Scheduler::reaper_loop() {
                         auto sigterm_elapsed = now - job.sigterm_time;
                         if (sigterm_elapsed > std::chrono::milliseconds(kGracePeriodMs)) {
                             Logger::instance().log(Logger::Level::WARN, "job " + std::to_string(job.id) + " grace period expired, sending SIGKILL");
+                            pid_t target = job.pgid > 0 ? -job.pgid : job.pid;
                             kill(job.pid, SIGKILL);
                             cv_.notify_all();
                             continue;
@@ -279,5 +283,13 @@ void Scheduler::reaper_loop() {
 Metrics::Snapshot Scheduler::metrics() const {
     std::scoped_lock lk(mu_);
     return metrics_.snapshot(static_cast<int>(pending_.size()));
+}
+
+void Scheduler::kill_process_group(const Job& job) {
+    if (job.pgid > 0) {
+        killpg(job.pgid, SIGTERM);
+    } else if (job.pid > 0) {
+        kill(job.pid, SIGTERM);
+    }
 }
 } // namespace ts

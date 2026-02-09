@@ -28,6 +28,7 @@ struct Job {
     JobSpec spec{};
     JobStatus status{JobStatus::Pending};
     pid_t pid{-1};
+    pid_t pgid{-1};
     int exit_code{-1};
     std::chrono::steady_clock::time_point start_time{};
     std::chrono::steady_clock::time_point enqueue_time{};

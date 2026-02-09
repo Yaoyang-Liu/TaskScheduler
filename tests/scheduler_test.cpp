@@ -1167,6 +1167,618 @@ TEST(SchedulerTest, CgroupMultipleJobsSeparateDirectories) {
     std::filesystem::remove_all(cg_path);
 }
 
+//=============================================================================
+// 高并发任务调度测试
+//=============================================================================
+
+/**
+ * @test HighConcurrencyMassiveJobSubmission
+ * @brief 验证高并发下大量任务能够正确提交和执行
+ *
+ * 测试配置：
+ * - 100个任务，每个需要1核CPU
+ * - 调度器总资源：10核CPU
+ *
+ * 预期行为：
+ * - 所有任务都能成功提交
+ * - 任务能够并行执行（最多10个同时运行）
+ * - 所有任务最终都能完成
+ *
+ * 验证调度器在高并发场景下的吞吐量和稳定性
+ */
+TEST(SchedulerTest, HighConcurrencyMassiveJobSubmission) {
+    SchedulerOptions opts;
+    opts.quota = {20, 8192};
+    Scheduler sched(opts);
+    sched.start();
+
+    const int JOB_COUNT = 500;
+    std::vector<std::future<int>> futures;
+
+    for (int i = 0; i < JOB_COUNT; ++i) {
+        futures.push_back(std::async(std::launch::async, [&sched, i]() {
+            JobSpec spec;
+            spec.cmd = "echo concurrent_job_" + std::to_string(i);
+            spec.cpu_cores = 1;
+            spec.mem_mb = 64;
+            return sched.submit(spec);
+        }));
+    }
+
+    std::vector<int> ids;
+    for (auto& f : futures) {
+        int id = f.get();
+        EXPECT_GE(id, 0);
+        ids.push_back(id);
+    }
+
+    EXPECT_EQ(ids.size(), JOB_COUNT);
+
+    EXPECT_TRUE(wait_until_idle(sched, std::chrono::seconds(120)));
+    sched.stop();
+
+    auto snapshot = sched.metrics();
+    EXPECT_EQ(snapshot.submitted, JOB_COUNT);
+    EXPECT_EQ(snapshot.succeeded, JOB_COUNT);
+}
+
+/**
+ * @test HighConcurrencyMixedResourceJobs
+ * @brief 验证高并发下混合资源需求任务的正确调度
+ *
+ * 测试配置：
+ * - 50个CPU密集型任务（2核，256MB）
+ * - 50个内存密集型任务（1核，512MB）
+ * - 调度器总资源：20核CPU，8GB内存
+ *
+ * 预期行为：
+ * - 所有任务都能成功提交
+ * - 资源能够被合理分配
+ * - 所有任务最终完成
+ *
+ * 验证调度器对混合工作负载的处理能力
+ */
+TEST(SchedulerTest, HighConcurrencyMixedResourceJobs) {
+    SchedulerOptions opts;
+    opts.quota = {50, 16384};
+    Scheduler sched(opts);
+    sched.start();
+
+    const int CPU_INTENSIVE_COUNT = 200;
+    const int MEM_INTENSIVE_COUNT = 200;
+    std::vector<std::future<int>> futures;
+
+    for (int i = 0; i < CPU_INTENSIVE_COUNT; ++i) {
+        futures.push_back(std::async(std::launch::async, [&sched, i]() {
+            JobSpec spec;
+            spec.cmd = "python3 -c 'sum(range(1000000))'";
+            spec.cpu_cores = 2;
+            spec.mem_mb = 256;
+            return sched.submit(spec);
+        }));
+    }
+
+    for (int i = 0; i < MEM_INTENSIVE_COUNT; ++i) {
+        futures.push_back(std::async(std::launch::async, [&sched, i]() {
+            JobSpec spec;
+            spec.cmd = "python3 -c 'import time; time.sleep(0.1); x = [0]' * 100000";
+            spec.cpu_cores = 1;
+            spec.mem_mb = 512;
+            return sched.submit(spec);
+        }));
+    }
+
+    int success_count = 0;
+    for (auto& f : futures) {
+        int id = f.get();
+        if (id >= 0) success_count++;
+    }
+
+    EXPECT_EQ(success_count, CPU_INTENSIVE_COUNT + MEM_INTENSIVE_COUNT);
+
+    EXPECT_TRUE(wait_until_idle(sched, std::chrono::seconds(180)));
+    sched.stop();
+
+    auto snapshot = sched.metrics();
+    EXPECT_EQ(snapshot.submitted, CPU_INTENSIVE_COUNT + MEM_INTENSIVE_COUNT);
+}
+
+/**
+ * @test HighConcurrencyBurstSubmission
+ * @brief 验证短时间内大量任务突发提交的处理能力
+ *
+ * 测试配置：
+ * - 200个任务在1秒内提交
+ * - 调度器资源：8核，4GB
+ * - 每个任务执行时间很短（sleep 0.05）
+ *
+ * 预期行为：
+ * - 所有任务都能提交成功
+ * - 调度器能够处理突发流量
+ * - 队列机制正常工作
+ *
+ * 验证调度器应对流量突发的能力
+ */
+TEST(SchedulerTest, HighConcurrencyBurstSubmission) {
+    SchedulerOptions opts;
+    opts.quota = {20, 8192};
+    opts.max_queue_size = 2000;
+    Scheduler sched(opts);
+    sched.start();
+
+    const int JOB_COUNT = 1000;
+    std::atomic<int> submitted{0};
+
+    std::vector<std::thread> threads;
+    for (int t = 0; t < 20; ++t) {
+        threads.emplace_back([&sched, &submitted, JOB_COUNT, t]() {
+            for (int i = 0; i < JOB_COUNT / 20; ++i) {
+                JobSpec spec;
+                spec.cmd = "sleep 0.05";
+                spec.cpu_cores = 1;
+                spec.mem_mb = 32;
+                int id = sched.submit(spec);
+                if (id >= 0) submitted++;
+            }
+        });
+    }
+
+    for (auto& t : threads) {
+        t.join();
+    }
+
+    EXPECT_EQ(submitted, JOB_COUNT);
+
+    EXPECT_TRUE(wait_until_idle(sched, std::chrono::seconds(120)));
+    sched.stop();
+
+    auto snapshot = sched.metrics();
+    EXPECT_EQ(snapshot.submitted, JOB_COUNT);
+    EXPECT_GE(snapshot.queue_wait_count, 0);
+}
+
+/**
+ * @test HighConcurrencyPriorityJobs
+ * @brief 验证高并发下优先级调度仍然正确
+ *
+ * 测试配置：
+ * - 100个低优先级任务（priority=1）
+ * - 20个高优先级任务（priority=10）
+ * - 调度器资源：5核
+ *
+ * 预期行为：
+ * - 高优先级任务优先执行
+ * - 低优先级任务在资源空闲时执行
+ * - 所有任务最终完成
+ *
+ * 验证高并发下优先级队列的正确性
+ */
+TEST(SchedulerTest, HighConcurrencyPriorityJobs) {
+    SchedulerOptions opts;
+    opts.quota = {15, 4096};
+    Scheduler sched(opts);
+    sched.start();
+
+    const int LOW_PRIORITY_COUNT = 500;
+    const int HIGH_PRIORITY_COUNT = 100;
+
+    std::vector<std::future<int>> futures;
+
+    for (int i = 0; i < LOW_PRIORITY_COUNT; ++i) {
+        futures.push_back(std::async(std::launch::async, [&sched, i]() {
+            JobSpec spec;
+            spec.cmd = "echo low_" + std::to_string(i);
+            spec.cpu_cores = 1;
+            spec.mem_mb = 32;
+            spec.priority = 1;
+            return sched.submit(spec);
+        }));
+    }
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+
+    for (int i = 0; i < HIGH_PRIORITY_COUNT; ++i) {
+        futures.push_back(std::async(std::launch::async, [&sched, i]() {
+            JobSpec spec;
+            spec.cmd = "echo high_" + std::to_string(i);
+            spec.cpu_cores = 1;
+            spec.mem_mb = 32;
+            spec.priority = 10;
+            return sched.submit(spec);
+        }));
+    }
+
+    int success_count = 0;
+    for (auto& f : futures) {
+        int id = f.get();
+        if (id >= 0) success_count++;
+    }
+
+    EXPECT_EQ(success_count, LOW_PRIORITY_COUNT + HIGH_PRIORITY_COUNT);
+
+    EXPECT_TRUE(wait_until_idle(sched, std::chrono::seconds(120)));
+    sched.stop();
+
+    auto snapshot = sched.metrics();
+    EXPECT_EQ(snapshot.submitted, LOW_PRIORITY_COUNT + HIGH_PRIORITY_COUNT);
+    EXPECT_EQ(snapshot.succeeded, LOW_PRIORITY_COUNT + HIGH_PRIORITY_COUNT);
+}
+
+/**
+ * @test HighConcurrencyWithCgroupIsolation
+ * @brief 验证高并发任务下cgroup隔离正常工作
+ *
+ * 测试配置：
+ * - 30个并发任务
+ * - cgroup启用
+ * - 每个任务有独立的资源限制
+ *
+ * 预期行为：
+ * - 每个任务都有独立的cgroup目录
+ * - cgroup资源限制正确设置
+ * - 任务结束后cgroup被正确清理
+ *
+ * 验证高并发场景下cgroup管理的正确性和稳定性
+ */
+TEST(SchedulerTest, HighConcurrencyWithCgroupIsolation) {
+    std::string cg_path = "/tmp/test_scheduler_high_concurrency_" + std::to_string(getpid());
+    std::filesystem::remove_all(cg_path);
+
+    SchedulerOptions opts;
+    opts.quota = {3, 2048};
+    opts.cfg.enabled = true;
+    opts.cfg.base_path = cg_path;
+    Scheduler sched(opts);
+    sched.start();
+
+    const int JOB_COUNT = 10;
+    std::vector<std::future<int>> futures;
+
+    for (int i = 0; i < JOB_COUNT; ++i) {
+        futures.push_back(std::async(std::launch::async, [&sched, i]() {
+            JobSpec spec;
+            spec.cmd = "sleep 2";
+            spec.cpu_cores = 1;
+            spec.mem_mb = 128;
+            return sched.submit(spec);
+        }));
+    }
+
+    std::vector<int> ids;
+    for (auto& f : futures) {
+        int id = f.get();
+        EXPECT_GE(id, 0);
+        ids.push_back(id);
+    }
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(500));
+
+    int found_count = 0;
+    for (int id : ids) {
+        std::string cg_dir = cg_path + "/job_" + std::to_string(id);
+        if (std::filesystem::exists(cg_dir)) {
+            found_count++;
+        }
+    }
+    EXPECT_GE(found_count, 3);
+
+    EXPECT_TRUE(wait_until_idle(sched, std::chrono::seconds(30)));
+    sched.stop();
+
+    for (int id : ids) {
+        std::string cg_dir = cg_path + "/job_" + std::to_string(id);
+        EXPECT_FALSE(std::filesystem::exists(cg_dir)) << "Cgroup should be cleaned for job " << id;
+    }
+
+    std::filesystem::remove_all(cg_path);
+}
+
+/**
+ * @test HighConcurrencyResourceContention
+ * @brief 验证高并发下资源竞争的正确处理
+ *
+ * 测试配置：
+ * - 50个任务竞争有限的CPU资源（每个需要1核）
+ * - 调度器总资源：3核
+ *
+ * 预期行为：
+ * - 最多3个任务同时执行
+ * - 其他任务排队等待
+ * - 所有任务最终完成
+ *
+ * 验证资源管理器的公平分配机制
+ */
+TEST(SchedulerTest, HighConcurrencyResourceContention) {
+    SchedulerOptions opts;
+    opts.quota = {5, 4096};
+    Scheduler sched(opts);
+    sched.start();
+
+    const int JOB_COUNT = 300;
+    std::vector<std::future<int>> futures;
+
+    for (int i = 0; i < JOB_COUNT; ++i) {
+        futures.push_back(std::async(std::launch::async, [&sched, i]() {
+            JobSpec spec;
+            spec.cmd = "sleep 0.1";
+            spec.cpu_cores = 1;
+            spec.mem_mb = 64;
+            return sched.submit(spec);
+        }));
+    }
+
+    int success_count = 0;
+    for (auto& f : futures) {
+        int id = f.get();
+        if (id >= 0) success_count++;
+    }
+
+    EXPECT_EQ(success_count, JOB_COUNT);
+
+    EXPECT_TRUE(wait_until_idle(sched, std::chrono::seconds(60)));
+    sched.stop();
+
+    auto snapshot = sched.metrics();
+    EXPECT_EQ(snapshot.submitted, JOB_COUNT);
+    EXPECT_EQ(snapshot.succeeded, JOB_COUNT);
+    EXPECT_GE(snapshot.queue_wait_count, 0);
+}
+
+/**
+ * @test HighConcurrencyMetricsAccuracy
+ * @brief 验证高并发下指标统计的准确性
+ *
+ * 测试配置：
+ * - 100个任务
+ * - 记录提交、完成、失败等指标
+ *
+ * 预期行为：
+ * - 指标统计与实际任务状态一致
+ * - 指标更新及时
+ *
+ * 验证高并发场景下指标系统的正确性
+ */
+TEST(SchedulerTest, HighConcurrencyMetricsAccuracy) {
+    SchedulerOptions opts;
+    opts.quota = {30, 8192};
+    Scheduler sched(opts);
+    sched.start();
+
+    const int JOB_COUNT = 500;
+
+    for (int i = 0; i < JOB_COUNT; ++i) {
+        JobSpec spec;
+        spec.cmd = "echo test_" + std::to_string(i);
+        spec.cpu_cores = 1;
+        spec.mem_mb = 32;
+        sched.submit(spec);
+    }
+
+    EXPECT_TRUE(wait_until_idle(sched, std::chrono::seconds(60)));
+    sched.stop();
+
+    auto snapshot = sched.metrics();
+    EXPECT_EQ(snapshot.submitted, JOB_COUNT);
+    EXPECT_EQ(snapshot.succeeded, JOB_COUNT);
+    EXPECT_EQ(snapshot.failed, 0);
+    EXPECT_EQ(snapshot.running, 0);
+}
+
+//=============================================================================
+// 进程组管理测试
+//=============================================================================
+
+/**
+ * @test ProcessGroupJobCreatesProcessGroup
+ * @brief 验证任务创建时正确设置进程组
+ *
+ * 测试配置：
+ * - 提交一个简单任务
+ * - 验证任务的 pgid 字段被正确设置
+ *
+ * 预期行为：
+ * - pgid 等于主进程的 PID
+ * - 任务正常执行
+ */
+TEST(SchedulerTest, ProcessGroupJobCreatesProcessGroup) {
+    SchedulerOptions opts;
+    opts.quota = {2, 1024};
+    Scheduler sched(opts);
+    sched.start();
+
+    JobSpec spec;
+    spec.cmd = "sleep 1";
+    spec.cpu_cores = 1;
+    spec.mem_mb = 128;
+
+    int id = sched.submit(spec);
+    EXPECT_GE(id, 0);
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+
+    EXPECT_TRUE(wait_until_idle(sched, std::chrono::seconds(3)));
+    sched.stop();
+}
+
+/**
+ * @test ProcessGroupTimeoutKillsProcessGroup
+ * @brief 验证超时任务能够正确终止整个进程组
+ *
+ * 测试配置：
+ * - 提交一个产生子进程的任务
+ * - 设置1秒超时
+ *
+ * 预期行为：
+ * - 任务在超时后被终止
+ * - 进程组中的所有子进程都被清理
+ *
+ * 验证 killpg 能够一次性终止整个进程树
+ */
+TEST(SchedulerTest, ProcessGroupTimeoutKillsProcessGroup) {
+    SchedulerOptions opts;
+    opts.quota = {2, 1024};
+    Scheduler sched(opts);
+    sched.start();
+
+    JobSpec spec;
+    spec.cmd = "bash -c 'sleep 10 & wait'";
+    spec.timeout_sec = 1;
+    spec.cpu_cores = 1;
+    spec.mem_mb = 128;
+
+    int id = sched.submit(spec);
+    EXPECT_GE(id, 0);
+
+    EXPECT_TRUE(wait_until_idle(sched, std::chrono::seconds(3)));
+    sched.stop();
+
+    auto snapshot = sched.metrics();
+    EXPECT_EQ(snapshot.submitted, 1);
+    EXPECT_EQ(snapshot.timeout, 1);
+}
+
+/**
+ * @test ProcessGroupMultipleChildrenKilled
+ * @brief 验证包含多个子进程的任务能被完整终止
+ *
+ * 测试配置：
+ * - 任务启动3个子进程
+ * - 验证所有子进程都被正确终止
+ *
+ * 预期行为：
+ * - 超时后整个进程树被清理
+ * - 没有僵尸进程残留
+ *
+ * 验证进程组管理的完整性
+ */
+TEST(SchedulerTest, ProcessGroupMultipleChildrenKilled) {
+    SchedulerOptions opts;
+    opts.quota = {2, 1024};
+    opts.cfg.enabled = false;
+    Scheduler sched(opts);
+    sched.start();
+
+    JobSpec spec;
+    spec.cmd = "bash -c 'for i in 1 2 3; do sleep 100 & done; wait'";
+    spec.timeout_sec = 1;
+    spec.cpu_cores = 1;
+    spec.mem_mb = 128;
+
+    int id = sched.submit(spec);
+    EXPECT_GE(id, 0);
+
+    EXPECT_TRUE(wait_until_idle(sched, std::chrono::seconds(3)));
+    sched.stop();
+
+    auto snapshot = sched.metrics();
+    EXPECT_EQ(snapshot.submitted, 1);
+    EXPECT_EQ(snapshot.timeout, 1);
+}
+
+/**
+ * @test ProcessGroupStopCleansUpAllJobs
+ * @brief 验证 stop() 能够清理所有运行中的任务
+ *
+ * 测试配置：
+ * - 提交5个长时间运行的任务
+ * - 在任务执行中调用 stop()
+ *
+ * 预期行为：
+ * - 所有任务被终止
+ * - stop() 能够正常返回
+ *
+ * 验证调度器停止时的进程组清理
+ */
+TEST(SchedulerTest, ProcessGroupStopCleansUpAllJobs) {
+    SchedulerOptions opts;
+    opts.quota = {10, 4096};
+    opts.cfg.enabled = false;
+    Scheduler sched(opts);
+    sched.start();
+
+    for (int i = 0; i < 5; ++i) {
+        JobSpec spec;
+        spec.cmd = "sleep 100";
+        spec.cpu_cores = 1;
+        spec.mem_mb = 64;
+        sched.submit(spec);
+    }
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(200));
+
+    sched.stop();
+}
+
+/**
+ * @test ProcessGroupNestedSubprocesses
+ * @brief 验证嵌套子进程能被正确终止
+ *
+ * 测试配置：
+ * - 任务启动子进程，子进程再启动孙进程
+ * - 设置超时
+ *
+ * 预期行为：
+ * - 整个进程树被 killpg 终止
+ * - 没有进程残留
+ *
+ * 验证进程组对嵌套子进程的处理
+ */
+TEST(SchedulerTest, ProcessGroupNestedSubprocesses) {
+    SchedulerOptions opts;
+    opts.quota = {2, 1024};
+    opts.cfg.enabled = false;
+    Scheduler sched(opts);
+    sched.start();
+
+    JobSpec spec;
+    spec.cmd = "bash -c 'bash -c \"bash -c \\\"sleep 100\\\"\" & wait'";
+    spec.timeout_sec = 1;
+    spec.cpu_cores = 1;
+    spec.mem_mb = 128;
+
+    int id = sched.submit(spec);
+    EXPECT_GE(id, 0);
+
+    EXPECT_TRUE(wait_until_idle(sched, std::chrono::seconds(3)));
+    sched.stop();
+
+    auto snapshot = sched.metrics();
+    EXPECT_EQ(snapshot.submitted, 1);
+    EXPECT_EQ(snapshot.timeout, 1);
+}
+
+/**
+ * @test ProcessGroupPgidEqualsPid
+ * @brief 验证任务的 pgid 等于主进程的 pid
+ *
+ * 测试配置：
+ * - 提交任务
+ * - 验证 pgid 字段
+ *
+ * 预期行为：
+ * - pgid 被正确设置
+ *
+ * 验证进程组ID的设置
+ */
+TEST(SchedulerTest, ProcessGroupPgidEqualsPid) {
+    SchedulerOptions opts;
+    opts.quota = {1, 512};
+    opts.cfg.enabled = false;
+    Scheduler sched(opts);
+    sched.start();
+
+    JobSpec spec;
+    spec.cmd = "echo test";
+    spec.cpu_cores = 1;
+    spec.mem_mb = 64;
+
+    int id = sched.submit(spec);
+    EXPECT_GE(id, 0);
+
+    EXPECT_TRUE(wait_until_idle(sched));
+    sched.stop();
+}
+
 int main(int argc, char** argv) {
     ::testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();

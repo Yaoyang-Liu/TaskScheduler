@@ -54,6 +54,7 @@ private:
     bool launch_job(Job& job);
     void dispatcher_loop();
     void reaper_loop();
+    void kill_process_group(const Job& job);
     SchedulerOptions opts_;
     ResourceManager rm_;
     std::priority_queue<Job, std::vector<Job>, JobComparator> pending_;

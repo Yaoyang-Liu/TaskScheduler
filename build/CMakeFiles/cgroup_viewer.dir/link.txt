@@ -1,0 +1,1 @@
+/usr/bin/c++ CMakeFiles/cgroup_viewer.dir/src/main.cpp.o -o cgroup_viewer  libcore.a -lpthread 
