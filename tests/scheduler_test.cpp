@@ -1779,6 +1779,757 @@ TEST(SchedulerTest, ProcessGroupPgidEqualsPid) {
     sched.stop();
 }
 
+//=============================================================================
+// PSI (Pressure Stall Information) 功能测试
+//=============================================================================
+
+TEST(SchedulerTest, PsiMonitorStartsWithScheduler) {
+    std::string cg_path = "/tmp/test_scheduler_psi_start_" + std::to_string(getpid());
+    std::filesystem::remove_all(cg_path);
+
+    SchedulerOptions opts;
+    opts.quota = {2, 1024};
+    opts.cfg.enabled = true;
+    opts.cfg.base_path = cg_path;
+    Scheduler sched(opts);
+    sched.start();
+
+    EXPECT_TRUE(wait_until_idle(sched, std::chrono::seconds(1)));
+    sched.stop();
+
+    std::filesystem::remove_all(cg_path);
+}
+
+TEST(SchedulerTest, PsiMonitorReadsPressureFiles) {
+    std::string cg_path = "/tmp/test_scheduler_psi_read_" + std::to_string(getpid());
+    std::filesystem::remove_all(cg_path);
+    std::filesystem::create_directories(cg_path);
+
+    std::string mem_pressure_file = cg_path + "/memory.pressure";
+    std::ofstream(mem_pressure_file) << "some avg10=0.10 avg60=0.05 avg300=0.02 total=100000\n"
+                                      << "full avg10=0.05 avg60=0.02 avg300=0.01 total=50000\n";
+
+    std::string cpu_pressure_file = cg_path + "/cpu.pressure";
+    std::ofstream(cpu_pressure_file) << "some avg10=0.20 avg60=0.15 avg300=0.10 total=200000\n";
+
+    SchedulerOptions opts;
+    opts.quota = {2, 1024};
+    opts.cfg.enabled = true;
+    opts.cfg.base_path = cg_path;
+    Scheduler sched(opts);
+    sched.start();
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(500));
+
+    sched.stop();
+
+    auto snapshot = sched.metrics();
+    EXPECT_GE(snapshot.pressure_blocked, 0);
+
+    std::filesystem::remove_all(cg_path);
+}
+
+TEST(SchedulerTest, PsiPressureBelowThresholdDoesNotBlock) {
+    std::string cg_path = "/tmp/test_scheduler_psi_normal_" + std::to_string(getpid());
+    std::filesystem::remove_all(cg_path);
+    std::filesystem::create_directories(cg_path);
+
+    std::string mem_pressure_file = cg_path + "/memory.pressure";
+    std::ofstream(mem_pressure_file) << "some avg10=0.01 avg60=0.01 avg300=0.01 total=1000\n"
+                                      << "full avg10=0.01 avg60=0.01 avg300=0.01 total=500\n";
+
+    std::string cpu_pressure_file = cg_path + "/cpu.pressure";
+    std::ofstream(cpu_pressure_file) << "some avg10=0.01 avg60=0.01 avg300=0.01 total=1000\n";
+
+    SchedulerOptions opts;
+    opts.quota = {4, 2048};
+    opts.cfg.enabled = true;
+    opts.cfg.base_path = cg_path;
+    Scheduler sched(opts);
+    sched.start();
+
+    JobSpec spec;
+    spec.cmd = "echo test";
+    spec.cpu_cores = 1;
+    spec.mem_mb = 128;
+
+    int id = sched.submit(spec);
+    EXPECT_GE(id, 0);
+
+    EXPECT_TRUE(wait_until_idle(sched));
+
+    sched.stop();
+
+    std::filesystem::remove_all(cg_path);
+}
+
+TEST(SchedulerTest, PsiPressureAboveThresholdBlocksNewJobs) {
+    std::string cg_path = "/tmp/test_scheduler_psi_high_" + std::to_string(getpid());
+    std::filesystem::remove_all(cg_path);
+    std::filesystem::create_directories(cg_path);
+
+    std::string mem_pressure_file = cg_path + "/memory.pressure";
+    std::ofstream(mem_pressure_file) << "some avg10=0.80 avg60=0.70 avg300=0.60 total=100000\n"
+                                      << "full avg10=0.50 avg60=0.40 avg300=0.30 total=80000\n";
+
+    std::string cpu_pressure_file = cg_path + "/cpu.pressure";
+    std::ofstream(cpu_pressure_file) << "some avg10=0.90 avg60=0.85 avg300=0.80 total=200000\n";
+
+    SchedulerOptions opts;
+    opts.quota = {4, 2048};
+    opts.cfg.enabled = true;
+    opts.cfg.base_path = cg_path;
+    Scheduler sched(opts);
+    sched.start();
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(300));
+
+    auto snapshot = sched.metrics();
+    EXPECT_GE(snapshot.pressure_blocked, 0);
+
+    sched.stop();
+
+    std::filesystem::remove_all(cg_path);
+}
+
+TEST(SchedulerTest, PsiMemorySomePressureDetection) {
+    std::string cg_path = "/tmp/test_scheduler_psi_mem_some_" + std::to_string(getpid());
+    std::filesystem::remove_all(cg_path);
+    std::filesystem::create_directories(cg_path);
+
+    std::string mem_pressure_file = cg_path + "/memory.pressure";
+    std::ofstream(mem_pressure_file) << "some avg10=0.60 avg60=0.50 avg300=0.40 total=50000\n"
+                                      << "full avg10=0.01 avg60=0.01 avg300=0.01 total=1000\n";
+
+    std::string cpu_pressure_file = cg_path + "/cpu.pressure";
+    std::ofstream(cpu_pressure_file) << "some avg10=0.01 avg60=0.01 avg300=0.01 total=1000\n";
+
+    SchedulerOptions opts;
+    opts.quota = {2, 1024};
+    opts.cfg.enabled = true;
+    opts.cfg.base_path = cg_path;
+    Scheduler sched(opts);
+    sched.start();
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(500));
+
+    sched.stop();
+
+    std::filesystem::remove_all(cg_path);
+}
+
+TEST(SchedulerTest, PsiMemoryFullPressureDetection) {
+    std::string cg_path = "/tmp/test_scheduler_psi_mem_full_" + std::to_string(getpid());
+    std::filesystem::remove_all(cg_path);
+    std::filesystem::create_directories(cg_path);
+
+    std::string mem_pressure_file = cg_path + "/memory.pressure";
+    std::ofstream(mem_pressure_file) << "some avg10=0.30 avg60=0.20 avg300=0.10 total=30000\n"
+                                      << "full avg10=0.20 avg60=0.15 avg300=0.10 total=20000\n";
+
+    std::string cpu_pressure_file = cg_path + "/cpu.pressure";
+    std::ofstream(cpu_pressure_file) << "some avg10=0.01 avg60=0.01 avg300=0.01 total=1000\n";
+
+    SchedulerOptions opts;
+    opts.quota = {2, 1024};
+    opts.cfg.enabled = true;
+    opts.cfg.base_path = cg_path;
+    Scheduler sched(opts);
+    sched.start();
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(500));
+
+    sched.stop();
+
+    std::filesystem::remove_all(cg_path);
+}
+
+TEST(SchedulerTest, PsiCpuPressureDetection) {
+    std::string cg_path = "/tmp/test_scheduler_psi_cpu_" + std::to_string(getpid());
+    std::filesystem::remove_all(cg_path);
+    std::filesystem::create_directories(cg_path);
+
+    std::string mem_pressure_file = cg_path + "/memory.pressure";
+    std::ofstream(mem_pressure_file) << "some avg10=0.01 avg60=0.01 avg300=0.01 total=1000\n"
+                                      << "full avg10=0.01 avg60=0.01 avg300=0.01 total=500\n";
+
+    std::string cpu_pressure_file = cg_path + "/cpu.pressure";
+    std::ofstream(cpu_pressure_file) << "some avg10=0.90 avg60=0.85 avg300=0.80 total=500000\n";
+
+    SchedulerOptions opts;
+    opts.quota = {2, 1024};
+    opts.cfg.enabled = true;
+    opts.cfg.base_path = cg_path;
+    Scheduler sched(opts);
+    sched.start();
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(500));
+
+    sched.stop();
+
+    std::filesystem::remove_all(cg_path);
+}
+
+TEST(SchedulerTest, PsiPressureRecovery) {
+    std::string cg_path = "/tmp/test_scheduler_psi_recovery_" + std::to_string(getpid());
+    std::filesystem::remove_all(cg_path);
+    std::filesystem::create_directories(cg_path);
+
+    std::string mem_pressure_file = cg_path + "/memory.pressure";
+    std::string cpu_pressure_file = cg_path + "/cpu.pressure";
+
+    {
+        std::ofstream(mem_pressure_file) << "some avg10=0.80 avg60=0.70 avg300=0.60 total=100000\n"
+                                          << "full avg10=0.50 avg60=0.40 avg300=0.30 total=80000\n";
+        std::ofstream(cpu_pressure_file) << "some avg10=0.90 avg60=0.85 avg300=0.80 total=200000\n";
+    }
+
+    SchedulerOptions opts;
+    opts.quota = {4, 2048};
+    opts.cfg.enabled = true;
+    opts.cfg.base_path = cg_path;
+    Scheduler sched(opts);
+    sched.start();
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(500));
+
+    {
+        std::ofstream(mem_pressure_file) << "some avg10=0.01 avg60=0.01 avg300=0.01 total=1000\n"
+                                          << "full avg10=0.01 avg60=0.01 avg300=0.01 total=500\n";
+        std::ofstream(cpu_pressure_file) << "some avg10=0.01 avg60=0.01 avg300=0.01 total=1000\n";
+    }
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(500));
+
+    sched.stop();
+
+    std::filesystem::remove_all(cg_path);
+}
+
+TEST(SchedulerTest, PsiBackpressurePreventsNewJobs) {
+    std::string cg_path = "/tmp/test_scheduler_psi_backpressure_" + std::to_string(getpid());
+    std::filesystem::remove_all(cg_path);
+    std::filesystem::create_directories(cg_path);
+
+    std::string mem_pressure_file = cg_path + "/memory.pressure";
+    std::ofstream(mem_pressure_file) << "some avg10=0.80 avg60=0.70 avg300=0.60 total=100000\n"
+                                      << "full avg10=0.50 avg60=0.40 avg300=0.30 total=80000\n";
+
+    std::string cpu_pressure_file = cg_path + "/cpu.pressure";
+    std::ofstream(cpu_pressure_file) << "some avg10=0.90 avg60=0.85 avg300=0.80 total=200000\n";
+
+    SchedulerOptions opts;
+    opts.quota = {8, 4096};
+    opts.cfg.enabled = true;
+    opts.cfg.base_path = cg_path;
+    Scheduler sched(opts);
+    sched.start();
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(500));
+
+    auto snapshot1 = sched.metrics();
+    int64_t blocked_before = snapshot1.pressure_blocked;
+
+    for (int i = 0; i < 5; ++i) {
+        JobSpec spec;
+        spec.cmd = "sleep 10";
+        spec.cpu_cores = 1;
+        spec.mem_mb = 128;
+        sched.submit(spec);
+    }
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(500));
+
+    auto snapshot2 = sched.metrics();
+    EXPECT_GE(snapshot2.pressure_blocked, blocked_before);
+
+    sched.stop();
+
+    std::filesystem::remove_all(cg_path);
+}
+
+TEST(SchedulerTest, PsiMissingPressureFiles) {
+    std::string cg_path = "/tmp/test_scheduler_psi_missing_" + std::to_string(getpid());
+    std::filesystem::remove_all(cg_path);
+    std::filesystem::create_directories(cg_path);
+
+    SchedulerOptions opts;
+    opts.quota = {2, 1024};
+    opts.cfg.enabled = true;
+    opts.cfg.base_path = cg_path;
+    Scheduler sched(opts);
+    sched.start();
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(500));
+
+    sched.stop();
+
+    std::filesystem::remove_all(cg_path);
+}
+
+TEST(SchedulerTest, PsiEmptyPressureFiles) {
+    std::string cg_path = "/tmp/test_scheduler_psi_empty_" + std::to_string(getpid());
+    std::filesystem::remove_all(cg_path);
+    std::filesystem::create_directories(cg_path);
+
+    std::string mem_pressure_file = cg_path + "/memory.pressure";
+    std::string cpu_pressure_file = cg_path + "/cpu.pressure";
+
+    std::ofstream(mem_pressure_file) << "";
+    std::ofstream(cpu_pressure_file) << "";
+
+    SchedulerOptions opts;
+    opts.quota = {2, 1024};
+    opts.cfg.enabled = true;
+    opts.cfg.base_path = cg_path;
+    Scheduler sched(opts);
+    sched.start();
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(500));
+
+    sched.stop();
+
+    std::filesystem::remove_all(cg_path);
+}
+
+TEST(SchedulerTest, PsiInvalidPressureFormat) {
+    std::string cg_path = "/tmp/test_scheduler_psi_invalid_" + std::to_string(getpid());
+    std::filesystem::remove_all(cg_path);
+    std::filesystem::create_directories(cg_path);
+
+    std::string mem_pressure_file = cg_path + "/memory.pressure";
+    std::string cpu_pressure_file = cg_path + "/cpu.pressure";
+
+    std::ofstream(mem_pressure_file) << "invalid content\n";
+    std::ofstream(cpu_pressure_file) << "also invalid\n";
+
+    SchedulerOptions opts;
+    opts.quota = {2, 1024};
+    opts.cfg.enabled = true;
+    opts.cfg.base_path = cg_path;
+    Scheduler sched(opts);
+    sched.start();
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(500));
+
+    sched.stop();
+
+    std::filesystem::remove_all(cg_path);
+}
+
+TEST(SchedulerTest, PsiMalformedPressureLines) {
+    std::string cg_path = "/tmp/test_scheduler_psi_malformed_" + std::to_string(getpid());
+    std::filesystem::remove_all(cg_path);
+    std::filesystem::create_directories(cg_path);
+
+    std::string mem_pressure_file = cg_path + "/memory.pressure";
+    std::string cpu_pressure_file = cg_path + "/cpu.pressure";
+
+    std::ofstream(mem_pressure_file) << "some avg10=invalid avg60=0.05 avg300=0.02 total=100000\n"
+                                      << "full avg10=0.05 avg60=0.02 avg300=0.01 total=50000\n";
+    std::ofstream(cpu_pressure_file) << "some avg10=0.20 avg60=0.15 avg300=0.10 total=200000\n";
+
+    SchedulerOptions opts;
+    opts.quota = {2, 1024};
+    opts.cfg.enabled = true;
+    opts.cfg.base_path = cg_path;
+    Scheduler sched(opts);
+    sched.start();
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(500));
+
+    sched.stop();
+
+    std::filesystem::remove_all(cg_path);
+}
+
+TEST(SchedulerTest, PsiPressureAtExactThresholds) {
+    std::string cg_path = "/tmp/test_scheduler_psi_threshold_" + std::to_string(getpid());
+    std::filesystem::remove_all(cg_path);
+    std::filesystem::create_directories(cg_path);
+
+    std::string mem_pressure_file = cg_path + "/memory.pressure";
+    std::string cpu_pressure_file = cg_path + "/cpu.pressure";
+
+    std::ofstream(mem_pressure_file) << "some avg10=0.50 avg60=0.50 avg300=0.50 total=50000\n"
+                                      << "full avg10=0.10 avg60=0.10 avg300=0.10 total=10000\n";
+    std::ofstream(cpu_pressure_file) << "some avg10=0.80 avg60=0.80 avg300=0.80 total=80000\n";
+
+    SchedulerOptions opts;
+    opts.quota = {2, 1024};
+    opts.cfg.enabled = true;
+    opts.cfg.base_path = cg_path;
+    Scheduler sched(opts);
+    sched.start();
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(500));
+
+    sched.stop();
+
+    std::filesystem::remove_all(cg_path);
+}
+
+TEST(SchedulerTest, PsiPressureSlightlyBelowThresholds) {
+    std::string cg_path = "/tmp/test_scheduler_psi_below_" + std::to_string(getpid());
+    std::filesystem::remove_all(cg_path);
+    std::filesystem::create_directories(cg_path);
+
+    std::string mem_pressure_file = cg_path + "/memory.pressure";
+    std::string cpu_pressure_file = cg_path + "/cpu.pressure";
+
+    std::ofstream(mem_pressure_file) << "some avg10=0.49 avg60=0.49 avg300=0.49 total=49000\n"
+                                      << "full avg10=0.09 avg60=0.09 avg300=0.09 total=9000\n";
+    std::ofstream(cpu_pressure_file) << "some avg10=0.79 avg60=0.79 avg300=0.79 total=79000\n";
+
+    SchedulerOptions opts;
+    opts.quota = {2, 1024};
+    opts.cfg.enabled = true;
+    opts.cfg.base_path = cg_path;
+    Scheduler sched(opts);
+    sched.start();
+
+    JobSpec spec;
+    spec.cmd = "echo test";
+    spec.cpu_cores = 1;
+    spec.mem_mb = 128;
+
+    int id = sched.submit(spec);
+    EXPECT_GE(id, 0);
+
+    EXPECT_TRUE(wait_until_idle(sched));
+
+    sched.stop();
+
+    std::filesystem::remove_all(cg_path);
+}
+
+TEST(SchedulerTest, PsiPressureWithMultiplePressureTypes) {
+    std::string cg_path = "/tmp/test_scheduler_psi_multi_" + std::to_string(getpid());
+    std::filesystem::remove_all(cg_path);
+    std::filesystem::create_directories(cg_path);
+
+    std::string mem_pressure_file = cg_path + "/memory.pressure";
+    std::string cpu_pressure_file = cg_path + "/cpu.pressure";
+
+    std::ofstream(mem_pressure_file) << "some avg10=0.70 avg60=0.60 avg300=0.50 total=70000\n"
+                                      << "full avg10=0.30 avg60=0.25 avg300=0.20 total=30000\n";
+    std::ofstream(cpu_pressure_file) << "some avg10=0.90 avg60=0.85 avg300=0.80 total=90000\n";
+
+    SchedulerOptions opts;
+    opts.quota = {4, 2048};
+    opts.cfg.enabled = true;
+    opts.cfg.base_path = cg_path;
+    Scheduler sched(opts);
+    sched.start();
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(500));
+
+    auto snapshot = sched.metrics();
+    EXPECT_GE(snapshot.pressure_blocked, 0);
+
+    sched.stop();
+
+    std::filesystem::remove_all(cg_path);
+}
+
+TEST(SchedulerTest, PsiOnlyMemoryPressure) {
+    std::string cg_path = "/tmp/test_scheduler_psi_mem_only_" + std::to_string(getpid());
+    std::filesystem::remove_all(cg_path);
+    std::filesystem::create_directories(cg_path);
+
+    std::string mem_pressure_file = cg_path + "/memory.pressure";
+    std::string cpu_pressure_file = cg_path + "/cpu.pressure";
+
+    std::ofstream(mem_pressure_file) << "some avg10=0.70 avg60=0.60 avg300=0.50 total=70000\n"
+                                      << "full avg10=0.20 avg60=0.15 avg300=0.10 total=20000\n";
+    std::ofstream(cpu_pressure_file) << "some avg10=0.10 avg60=0.10 avg300=0.10 total=10000\n";
+
+    SchedulerOptions opts;
+    opts.quota = {2, 1024};
+    opts.cfg.enabled = true;
+    opts.cfg.base_path = cg_path;
+    Scheduler sched(opts);
+    sched.start();
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(500));
+
+    sched.stop();
+
+    std::filesystem::remove_all(cg_path);
+}
+
+TEST(SchedulerTest, PsiOnlyCpuPressure) {
+    std::string cg_path = "/tmp/test_scheduler_psi_cpu_only_" + std::to_string(getpid());
+    std::filesystem::remove_all(cg_path);
+    std::filesystem::create_directories(cg_path);
+
+    std::string mem_pressure_file = cg_path + "/memory.pressure";
+    std::string cpu_pressure_file = cg_path + "/cpu.pressure";
+
+    std::ofstream(mem_pressure_file) << "some avg10=0.10 avg60=0.10 avg300=0.10 total=10000\n"
+                                      << "full avg10=0.01 avg60=0.01 avg300=0.01 total=1000\n";
+    std::ofstream(cpu_pressure_file) << "some avg10=0.90 avg60=0.85 avg300=0.80 total=90000\n";
+
+    SchedulerOptions opts;
+    opts.quota = {2, 1024};
+    opts.cfg.enabled = true;
+    opts.cfg.base_path = cg_path;
+    Scheduler sched(opts);
+    sched.start();
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(500));
+
+    sched.stop();
+
+    std::filesystem::remove_all(cg_path);
+}
+
+TEST(SchedulerTest, PsiVeryHighPressureValues) {
+    std::string cg_path = "/tmp/test_scheduler_psi_high_val_" + std::to_string(getpid());
+    std::filesystem::remove_all(cg_path);
+    std::filesystem::create_directories(cg_path);
+
+    std::string mem_pressure_file = cg_path + "/memory.pressure";
+    std::string cpu_pressure_file = cg_path + "/cpu.pressure";
+
+    std::ofstream(mem_pressure_file) << "some avg10=0.99 avg60=0.98 avg300=0.95 total=990000\n"
+                                      << "full avg10=0.95 avg60=0.90 avg300=0.85 total=950000\n";
+    std::ofstream(cpu_pressure_file) << "some avg10=0.99 avg60=0.99 avg300=0.99 total=990000\n";
+
+    SchedulerOptions opts;
+    opts.quota = {4, 2048};
+    opts.cfg.enabled = true;
+    opts.cfg.base_path = cg_path;
+    Scheduler sched(opts);
+    sched.start();
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(500));
+
+    auto snapshot = sched.metrics();
+    EXPECT_GE(snapshot.pressure_blocked, 0);
+
+    sched.stop();
+
+    std::filesystem::remove_all(cg_path);
+}
+
+TEST(SchedulerTest, PsiVeryLowPressureValues) {
+    std::string cg_path = "/tmp/test_scheduler_psi_low_val_" + std::to_string(getpid());
+    std::filesystem::remove_all(cg_path);
+    std::filesystem::create_directories(cg_path);
+
+    std::string mem_pressure_file = cg_path + "/memory.pressure";
+    std::string cpu_pressure_file = cg_path + "/cpu.pressure";
+
+    std::ofstream(mem_pressure_file) << "some avg10=0.001 avg60=0.001 avg300=0.001 total=100\n"
+                                      << "full avg10=0.000 avg60=0.000 avg300=0.000 total=0\n";
+    std::ofstream(cpu_pressure_file) << "some avg10=0.001 avg60=0.001 avg300=0.001 total=100\n";
+
+    SchedulerOptions opts;
+    opts.quota = {2, 1024};
+    opts.cfg.enabled = true;
+    opts.cfg.base_path = cg_path;
+    Scheduler sched(opts);
+    sched.start();
+
+    JobSpec spec;
+    spec.cmd = "echo low_pressure_test";
+    spec.cpu_cores = 1;
+    spec.mem_mb = 128;
+
+    int id = sched.submit(spec);
+    EXPECT_GE(id, 0);
+
+    EXPECT_TRUE(wait_until_idle(sched));
+
+    sched.stop();
+
+    std::filesystem::remove_all(cg_path);
+}
+
+TEST(SchedulerTest, PsiPressureWithRunningJobs) {
+    std::string cg_path = "/tmp/test_scheduler_psi_running_" + std::to_string(getpid());
+    std::filesystem::remove_all(cg_path);
+    std::filesystem::create_directories(cg_path);
+
+    std::string mem_pressure_file = cg_path + "/memory.pressure";
+    std::string cpu_pressure_file = cg_path + "/cpu.pressure";
+
+    std::ofstream(mem_pressure_file) << "some avg10=0.60 avg60=0.50 avg300=0.40 total=60000\n"
+                                      << "full avg10=0.15 avg60=0.10 avg300=0.08 total=15000\n";
+    std::ofstream(cpu_pressure_file) << "some avg10=0.85 avg60=0.80 avg300=0.75 total=85000\n";
+
+    SchedulerOptions opts;
+    opts.quota = {4, 2048};
+    opts.cfg.enabled = true;
+    opts.cfg.base_path = cg_path;
+    Scheduler sched(opts);
+    sched.start();
+
+    JobSpec spec;
+    spec.cmd = "sleep 5";
+    spec.cpu_cores = 1;
+    spec.mem_mb = 128;
+
+    int id = sched.submit(spec);
+    EXPECT_GE(id, 0);
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(300));
+
+    auto snapshot = sched.metrics();
+    EXPECT_GE(snapshot.running, 1);
+
+    EXPECT_TRUE(wait_until_idle(sched, std::chrono::seconds(10)));
+
+    sched.stop();
+
+    std::filesystem::remove_all(cg_path);
+}
+
+TEST(SchedulerTest, PsiPressureFlushOnStop) {
+    std::string cg_path = "/tmp/test_scheduler_psi_stop_" + std::to_string(getpid());
+    std::filesystem::remove_all(cg_path);
+    std::filesystem::create_directories(cg_path);
+
+    std::string mem_pressure_file = cg_path + "/memory.pressure";
+    std::string cpu_pressure_file = cg_path + "/cpu.pressure";
+
+    std::ofstream(mem_pressure_file) << "some avg10=0.80 avg60=0.70 avg300=0.60 total=80000\n"
+                                      << "full avg10=0.40 avg60=0.30 avg300=0.20 total=40000\n";
+    std::ofstream(cpu_pressure_file) << "some avg10=0.90 avg60=0.85 avg300=0.80 total=90000\n";
+
+    SchedulerOptions opts;
+    opts.quota = {2, 1024};
+    opts.cfg.enabled = true;
+    opts.cfg.base_path = cg_path;
+    Scheduler sched(opts);
+    sched.start();
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(300));
+
+    sched.stop();
+
+    auto snapshot = sched.metrics();
+    EXPECT_EQ(snapshot.pressure_active, 0);
+
+    std::filesystem::remove_all(cg_path);
+}
+
+TEST(SchedulerTest, PsiZeroPressureValues) {
+    std::string cg_path = "/tmp/test_scheduler_psi_zero_" + std::to_string(getpid());
+    std::filesystem::remove_all(cg_path);
+    std::filesystem::create_directories(cg_path);
+
+    std::string mem_pressure_file = cg_path + "/memory.pressure";
+    std::string cpu_pressure_file = cg_path + "/cpu.pressure";
+
+    std::ofstream(mem_pressure_file) << "some avg10=0.000000 avg60=0.000000 avg300=0.000000 total=0\n"
+                                      << "full avg10=0.000000 avg60=0.000000 avg300=0.000000 total=0\n";
+    std::ofstream(cpu_pressure_file) << "some avg10=0.000000 avg60=0.000000 avg300=0.000000 total=0\n";
+
+    SchedulerOptions opts;
+    opts.quota = {2, 1024};
+    opts.cfg.enabled = true;
+    opts.cfg.base_path = cg_path;
+    Scheduler sched(opts);
+    sched.start();
+
+    JobSpec spec;
+    spec.cmd = "echo zero_pressure";
+    spec.cpu_cores = 1;
+    spec.mem_mb = 128;
+
+    int id = sched.submit(spec);
+    EXPECT_GE(id, 0);
+
+    EXPECT_TRUE(wait_until_idle(sched));
+
+    sched.stop();
+
+    std::filesystem::remove_all(cg_path);
+}
+
+TEST(SchedulerTest, PsiPressureLargeTotalValues) {
+    std::string cg_path = "/tmp/test_scheduler_psi_large_total_" + std::to_string(getpid());
+    std::filesystem::remove_all(cg_path);
+    std::filesystem::create_directories(cg_path);
+
+    std::string mem_pressure_file = cg_path + "/memory.pressure";
+    std::string cpu_pressure_file = cg_path + "/cpu.pressure";
+
+    std::ofstream(mem_pressure_file) << "some avg10=0.50 avg60=0.45 avg300=0.40 total=9999999999\n"
+                                      << "full avg10=0.20 avg60=0.15 avg300=0.10 total=8888888888\n";
+    std::ofstream(cpu_pressure_file) << "some avg10=0.85 avg60=0.80 avg300=0.75 total=7777777777\n";
+
+    SchedulerOptions opts;
+    opts.quota = {2, 1024};
+    opts.cfg.enabled = true;
+    opts.cfg.base_path = cg_path;
+    Scheduler sched(opts);
+    sched.start();
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(500));
+
+    sched.stop();
+
+    std::filesystem::remove_all(cg_path);
+}
+
+TEST(SchedulerTest, PsiPressureWhitespaceInFile) {
+    std::string cg_path = "/tmp/test_scheduler_psi_ws_" + std::to_string(getpid());
+    std::filesystem::remove_all(cg_path);
+    std::filesystem::create_directories(cg_path);
+
+    std::string mem_pressure_file = cg_path + "/memory.pressure";
+    std::string cpu_pressure_file = cg_path + "/cpu.pressure";
+
+    std::ofstream(mem_pressure_file) << "   some avg10=0.60 avg60=0.50 avg300=0.40 total=60000   \n"
+                                      << "   full avg10=0.15 avg60=0.10 avg300=0.08 total=15000  \n";
+    std::ofstream(cpu_pressure_file) << "  some avg10=0.85 avg60=0.80 avg300=0.75 total=85000  \n";
+
+    SchedulerOptions opts;
+    opts.quota = {2, 1024};
+    opts.cfg.enabled = true;
+    opts.cfg.base_path = cg_path;
+    Scheduler sched(opts);
+    sched.start();
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(500));
+
+    sched.stop();
+
+    std::filesystem::remove_all(cg_path);
+}
+
+TEST(SchedulerTest, PsiPressureMultipleLines) {
+    std::string cg_path = "/tmp/test_scheduler_psi_multiline_" + std::to_string(getpid());
+    std::filesystem::remove_all(cg_path);
+    std::filesystem::create_directories(cg_path);
+
+    std::string mem_pressure_file = cg_path + "/memory.pressure";
+    std::string cpu_pressure_file = cg_path + "/cpu.pressure";
+
+    std::ofstream(mem_pressure_file) << "line1 some avg10=0.10 avg60=0.10 avg300=0.10 total=10000\n"
+                                      << "line2 some avg10=0.20 avg60=0.20 avg300=0.20 total=20000\n"
+                                      << "some avg10=0.70 avg60=0.60 avg300=0.50 total=70000\n"
+                                      << "full avg10=0.25 avg60=0.20 avg300=0.15 total=25000\n";
+    std::ofstream(cpu_pressure_file) << "some avg10=0.90 avg60=0.85 avg300=0.80 total=90000\n";
+
+    SchedulerOptions opts;
+    opts.quota = {2, 1024};
+    opts.cfg.enabled = true;
+    opts.cfg.base_path = cg_path;
+    Scheduler sched(opts);
+    sched.start();
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(500));
+
+    sched.stop();
+
+    std::filesystem::remove_all(cg_path);
+}
+
+
 int main(int argc, char** argv) {
     ::testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();

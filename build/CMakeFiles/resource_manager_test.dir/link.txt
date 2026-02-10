@@ -1,1 +1,1 @@
-/usr/bin/c++ CMakeFiles/resource_manager_test.dir/tests/resource_manager_test.cpp.o -o resource_manager_test  libcore.a /usr/lib/x86_64-linux-gnu/libgtest.a -lpthread 
+/usr/bin/c++ -g CMakeFiles/resource_manager_test.dir/tests/resource_manager_test.cpp.o -o resource_manager_test  libcore.a /usr/lib/x86_64-linux-gnu/libgtest.a -lpthread 

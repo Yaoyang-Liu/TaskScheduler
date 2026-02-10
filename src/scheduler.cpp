@@ -62,6 +62,7 @@ void Scheduler::start() {
     is_running_.store(true);
     dispatcher_thread_ = std::thread(&Scheduler::dispatcher_loop, this);
     reaper_thread_ = std::thread(&Scheduler::reaper_loop, this);
+    psi_thread_ = std::thread(&Scheduler::psi_loop, this);
 }
 
 // stop: 停止调度器，设置停止标志并等待线程退出
@@ -73,6 +74,9 @@ void Scheduler::stop() {
     }
     if(reaper_thread_.joinable()) {
         reaper_thread_.join();
+    }
+    if(psi_thread_.joinable()) {
+        psi_thread_.join();
     }
 }
 
@@ -172,6 +176,13 @@ void Scheduler::dispatcher_loop() {
         if (pending_.empty()) {
             continue;
         }
+        if (psi_pressure_.load(std::memory_order_relaxed)) {
+            metrics_.inc_pressure_blocked();
+            lk.unlock();
+            std::this_thread::sleep_for(std::chrono::milliseconds(200));
+            continue;
+        }
+        
         Job next_job;
         if (!pick_next_job(next_job)) {
             continue;
@@ -285,11 +296,57 @@ Metrics::Snapshot Scheduler::metrics() const {
     return metrics_.snapshot(static_cast<int>(pending_.size()));
 }
 
-void Scheduler::kill_process_group(const Job& job) {
-    if (job.pgid > 0) {
-        killpg(job.pgid, SIGTERM);
-    } else if (job.pid > 0) {
-        kill(job.pid, SIGTERM);
+static double read_pressure_avg10(const std::string& path, const std::string& token) {
+    std::ifstream ifs(path);
+    if(!ifs.is_open()) {
+        return 0.0;
     }
+    std::string line;
+    while(getline(ifs, line)) {
+        if(line.find(token) == std::string::npos) {
+            continue;
+        }
+        auto pos = line.find("avg10=");
+        if(pos == std::string::npos) {
+            continue;
+        }
+        pos += 6;
+        std::stringstream ss(line.substr(pos));
+        double val = 0.0;
+        ss >> val;
+        return val; 
+    }
+    return 0.0;
+}
+
+void Scheduler::psi_loop() {
+    const double mem_some_th = 0.5;
+    const double mem_full_th = 0.1;
+    const double cpu_some_th = 0.8;
+    auto base = opts_.cfg.base_path;
+    auto mem_path = base + "/memory.pressure";
+    auto cpu_path = base + "/cpu.pressure";
+    bool last_active = false;
+    while(is_running_.load()) {
+        double mem_some = read_pressure_avg10(mem_path, "some");
+        double mem_full = read_pressure_avg10(mem_path, "full");
+        double cpu_some = read_pressure_avg10(cpu_path, "some");
+        bool active = mem_some > mem_some_th || mem_full > mem_full_th || cpu_some > cpu_some_th;
+        psi_pressure_.store(active, std::memory_order_relaxed);
+        metrics_.set_pressure_active(active);
+        if(active && !last_active) {
+            metrics_.inc_pressure_blocked();
+            Logger::instance().log(Logger::Level::WARN, "psi_pressure on: mem_some: " + std::to_string(mem_some) + 
+                                                        " mem_full: " + std::to_string(mem_full) + 
+                                                        " cpu_some: " + std::to_string(cpu_some));
+        }
+        else if(!active && last_active) {
+            Logger::instance().log(Logger::Level::INFO, "psi backpressure off");
+        }
+        last_active = active;
+        std::this_thread::sleep_for(std::chrono::milliseconds(200));
+    }
+    psi_pressure_.store(false);
+    metrics_.set_pressure_active(false);
 }
 } // namespace ts

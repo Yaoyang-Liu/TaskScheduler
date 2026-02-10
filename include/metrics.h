@@ -17,6 +17,8 @@ public:
         int64_t queue_wait_ms_max{0};
         int64_t queue_wait_count{0};
         int pending{0};
+        int64_t pressure_blocked{0};
+        int pressure_active{0};
     };
     
     void inc_submitted() { submitted_.fetch_add(1, std::memory_order_relaxed); }
@@ -27,6 +29,8 @@ public:
     void inc_failed() { failed_.fetch_add(1, std::memory_order_relaxed); }
     void inc_timeout() { timeout_.fetch_add(1, std::memory_order_relaxed); }
     void inc_launch_failed() { launch_failed_.fetch_add(1, std::memory_order_relaxed); }
+    void inc_pressure_blocked() { pressure_blocked_.fetch_add(1, std::memory_order_relaxed); }
+    void set_pressure_active(bool on) { pressure_active_.store(on ? 1 : 0, std::memory_order_relaxed); }
 
     void add_queue_wait(int64_t wait_ms);
 
@@ -60,5 +64,7 @@ private:
     std::atomic<int64_t> queue_wait_ms_total_{0};
     std::atomic<int64_t> queue_wait_count_{0};
     std::atomic<int64_t> queue_wait_ms_max_{0};
+    std::atomic<int64_t> pressure_blocked_{0};
+    std::atomic<int> pressure_active_{0};
 };
 }

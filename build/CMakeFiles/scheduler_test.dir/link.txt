@@ -1,1 +1,1 @@
-/usr/bin/c++ CMakeFiles/scheduler_test.dir/tests/scheduler_test.cpp.o -o scheduler_test  libcore.a /usr/lib/x86_64-linux-gnu/libgtest.a -lpthread 
+/usr/bin/c++ -g CMakeFiles/scheduler_test.dir/tests/scheduler_test.cpp.o -o scheduler_test  libcore.a /usr/lib/x86_64-linux-gnu/libgtest.a -lpthread 

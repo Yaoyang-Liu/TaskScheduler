@@ -1,0 +1,5 @@
+/root/TaskScheduler/CMakeFiles/core.dir
+/root/TaskScheduler/CMakeFiles/resource_manager_test.dir
+/root/TaskScheduler/CMakeFiles/scheduler_test.dir
+/root/TaskScheduler/CMakeFiles/edit_cache.dir
+/root/TaskScheduler/CMakeFiles/rebuild_cache.dir
