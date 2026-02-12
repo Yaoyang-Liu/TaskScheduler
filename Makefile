@@ -155,6 +155,19 @@ scheduler_test/fast:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/scheduler_test.dir/build.make CMakeFiles/scheduler_test.dir/build
 .PHONY : scheduler_test/fast
 
+#=============================================================================
+# Target rules for targets named http_server_test
+
+# Build rule for target.
+http_server_test: cmake_check_build_system
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 http_server_test
+.PHONY : http_server_test
+
+# fast build rule for target.
+http_server_test/fast:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/http_server_test.dir/build.make CMakeFiles/http_server_test.dir/build
+.PHONY : http_server_test/fast
+
 src/cgroup_helper.o: src/cgroup_helper.cpp.o
 .PHONY : src/cgroup_helper.o
 
@@ -178,6 +191,30 @@ src/cgroup_helper.s: src/cgroup_helper.cpp.s
 src/cgroup_helper.cpp.s:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/core.dir/build.make CMakeFiles/core.dir/src/cgroup_helper.cpp.s
 .PHONY : src/cgroup_helper.cpp.s
+
+src/http_server.o: src/http_server.cpp.o
+.PHONY : src/http_server.o
+
+# target to build an object file
+src/http_server.cpp.o:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/core.dir/build.make CMakeFiles/core.dir/src/http_server.cpp.o
+.PHONY : src/http_server.cpp.o
+
+src/http_server.i: src/http_server.cpp.i
+.PHONY : src/http_server.i
+
+# target to preprocess a source file
+src/http_server.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/core.dir/build.make CMakeFiles/core.dir/src/http_server.cpp.i
+.PHONY : src/http_server.cpp.i
+
+src/http_server.s: src/http_server.cpp.s
+.PHONY : src/http_server.s
+
+# target to generate assembly for a file
+src/http_server.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/core.dir/build.make CMakeFiles/core.dir/src/http_server.cpp.s
+.PHONY : src/http_server.cpp.s
 
 src/job.o: src/job.cpp.o
 .PHONY : src/job.o
@@ -299,6 +336,30 @@ src/scheduler.cpp.s:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/core.dir/build.make CMakeFiles/core.dir/src/scheduler.cpp.s
 .PHONY : src/scheduler.cpp.s
 
+tests/http_server_test.o: tests/http_server_test.cpp.o
+.PHONY : tests/http_server_test.o
+
+# target to build an object file
+tests/http_server_test.cpp.o:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/http_server_test.dir/build.make CMakeFiles/http_server_test.dir/tests/http_server_test.cpp.o
+.PHONY : tests/http_server_test.cpp.o
+
+tests/http_server_test.i: tests/http_server_test.cpp.i
+.PHONY : tests/http_server_test.i
+
+# target to preprocess a source file
+tests/http_server_test.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/http_server_test.dir/build.make CMakeFiles/http_server_test.dir/tests/http_server_test.cpp.i
+.PHONY : tests/http_server_test.cpp.i
+
+tests/http_server_test.s: tests/http_server_test.cpp.s
+.PHONY : tests/http_server_test.s
+
+# target to generate assembly for a file
+tests/http_server_test.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/http_server_test.dir/build.make CMakeFiles/http_server_test.dir/tests/http_server_test.cpp.s
+.PHONY : tests/http_server_test.cpp.s
+
 tests/resource_manager_test.o: tests/resource_manager_test.cpp.o
 .PHONY : tests/resource_manager_test.o
 
@@ -356,11 +417,15 @@ help:
 	@echo "... edit_cache"
 	@echo "... rebuild_cache"
 	@echo "... core"
+	@echo "... http_server_test"
 	@echo "... resource_manager_test"
 	@echo "... scheduler_test"
 	@echo "... src/cgroup_helper.o"
 	@echo "... src/cgroup_helper.i"
 	@echo "... src/cgroup_helper.s"
+	@echo "... src/http_server.o"
+	@echo "... src/http_server.i"
+	@echo "... src/http_server.s"
 	@echo "... src/job.o"
 	@echo "... src/job.i"
 	@echo "... src/job.s"
@@ -376,6 +441,9 @@ help:
 	@echo "... src/scheduler.o"
 	@echo "... src/scheduler.i"
 	@echo "... src/scheduler.s"
+	@echo "... tests/http_server_test.o"
+	@echo "... tests/http_server_test.i"
+	@echo "... tests/http_server_test.s"
 	@echo "... tests/resource_manager_test.o"
 	@echo "... tests/resource_manager_test.i"
 	@echo "... tests/resource_manager_test.s"

@@ -19,6 +19,7 @@ add_library(core
     src/logger.cpp
     src/metrics.cpp
     src/cgroup_helper.cpp
+    src/http_server.cpp
 )
 
 # 编译测试程序
@@ -29,6 +30,9 @@ add_executable(resource_manager_test
 add_executable(scheduler_test
     tests/scheduler_test.cpp
 )
+add_executable(http_server_test
+    tests/http_server_test.cpp
+)
 # 链接核心模块、GTest库、线程库
 target_link_libraries(resource_manager_test
     core
@@ -37,6 +41,12 @@ target_link_libraries(resource_manager_test
 )
 
 target_link_libraries(scheduler_test
+    core
+    ${GTEST_LIBRARIES}
+    pthread
+)
+
+target_link_libraries(http_server_test
     core
     ${GTEST_LIBRARIES}
     pthread

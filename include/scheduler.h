@@ -66,7 +66,6 @@ private:
     void dispatcher_loop(); // 调度主循环
     void reaper_loop(); // 回收子进程状态
     void psi_loop(); // psi背压测试循环
-    void kill_process_group(const Job& job); // 终止任务进程组
 
     SchedulerOptions opts_; // 调度器配置选项
     ResourceManager rm_; // 资源管理器

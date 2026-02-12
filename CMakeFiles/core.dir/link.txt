@@ -1,2 +1,2 @@
-/usr/bin/ar qc libcore.a CMakeFiles/core.dir/src/resource_manager.cpp.o CMakeFiles/core.dir/src/job.cpp.o CMakeFiles/core.dir/src/scheduler.cpp.o CMakeFiles/core.dir/src/logger.cpp.o CMakeFiles/core.dir/src/metrics.cpp.o CMakeFiles/core.dir/src/cgroup_helper.cpp.o
+/usr/bin/ar qc libcore.a CMakeFiles/core.dir/src/resource_manager.cpp.o CMakeFiles/core.dir/src/job.cpp.o CMakeFiles/core.dir/src/scheduler.cpp.o CMakeFiles/core.dir/src/logger.cpp.o CMakeFiles/core.dir/src/metrics.cpp.o CMakeFiles/core.dir/src/cgroup_helper.cpp.o CMakeFiles/core.dir/src/http_server.cpp.o
 /usr/bin/ranlib libcore.a
